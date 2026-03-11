@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { DownloadCloud, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTranslation } from "react-i18next";
@@ -20,13 +20,28 @@ export default function ExportModal() {
   const [format, setFormat] = useState<"mp4" | "mp3" | "mp4-muted">("mp4");
   const [rendering, setRendering] = useState(false);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
+  const lastFileNameRef = useRef<string>("");
+
+  // Generate random filename: 3 letters + 5 digits, never repeats previous
+  const generateFileName = () => {
+    const letters = 'abcdefghijklmnopqrstuvwxyz';
+    let name = '';
+    do {
+      let chars = '';
+      for (let i = 0; i < 3; i++) chars += letters[Math.floor(Math.random() * 26)];
+      let nums = '';
+      for (let i = 0; i < 5; i++) nums += Math.floor(Math.random() * 10).toString();
+      name = chars + nums;
+    } while (name === lastFileNameRef.current);
+    lastFileNameRef.current = name;
+    return name;
+  };
 
   const handleRender = async () => {
     if (!videoFile || !loaded) return;
     setRendering(true);
     setResultUrl(null);
 
-    // Get original video dimensions to pass to renderVideo
     const tempVideo = document.createElement("video");
     tempVideo.src = URL.createObjectURL(videoFile);
     await new Promise((resolve) => {
@@ -54,15 +69,44 @@ export default function ExportModal() {
     }
   };
 
-  const handleDownload = () => {
-    if (resultUrl) {
-      const a = document.createElement("a");
-      a.href = resultUrl;
-      const ext = format.startsWith("mp4") ? "mp4" : format;
-      a.download = `exported-video.${ext}`;
-      a.click();
-      setIsOpen(false);
+  const handleDownload = async () => {
+    if (!resultUrl) return;
+    const ext = format.startsWith("mp4") ? "mp4" : format;
+    const fileName = `${generateFileName()}.${ext}`;
+
+    // Try File System Access API (lets user choose where to save)
+    if ('showSaveFilePicker' in window) {
+      try {
+        const mimeMap: Record<string, string> = {
+          mp4: 'video/mp4',
+          mp3: 'audio/mpeg',
+        };
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: fileName,
+          types: [{
+            description: ext.toUpperCase() + ' File',
+            accept: { [mimeMap[ext] || 'application/octet-stream']: ['.' + ext] },
+          }],
+        });
+        const writable = await handle.createWritable();
+        const response = await fetch(resultUrl);
+        const blob = await response.blob();
+        await writable.write(blob);
+        await writable.close();
+        setIsOpen(false);
+        return;
+      } catch (err: any) {
+        // User cancelled the picker — fall through to classic download
+        if (err?.name === 'AbortError') return;
+      }
     }
+
+    // Fallback: classic download
+    const a = document.createElement("a");
+    a.href = resultUrl;
+    a.download = fileName;
+    a.click();
+    setIsOpen(false);
   };
 
   useEffect(() => {
