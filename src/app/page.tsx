@@ -7,11 +7,14 @@ import ExportModal from "@/components/ui/ExportModal";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useTimeline, RESOLUTIONS } from "@/hooks/useTimeline";
 import { Button } from "@/components/ui/button";
-import { Upload } from "lucide-react";
+import { Upload, ChevronRight, ChevronLeft } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useTranslation } from "react-i18next";
+import { useState } from "react";
+import { motion } from "framer-motion";
 
 export default function Home() {
+  const [showInspector, setShowInspector] = useState(true);
   const { t, i18n } = useTranslation();
   const { setVideoFile, resolution, setResolution } = useTimeline();
 
@@ -86,13 +89,35 @@ export default function Home() {
         </div>
         
         {/* Bottom Panel: Editing Tools */}
-        <div className="h-[22rem] bg-background flex shrink-0 w-full z-10">
+        <div className="h-[22rem] bg-background flex shrink-0 w-full z-10 relative">
           <div className="flex-1 flex flex-col h-full border-r border-border overflow-hidden">
              <Timeline />
           </div>
-          <div className="w-[400px] shrink-0 h-full overflow-y-auto bg-muted/10">
-             <Inspector />
-          </div>
+
+          <motion.div
+             initial={false}
+             animate={{ width: showInspector ? 400 : 0 }}
+             className="shrink-0 h-full overflow-hidden bg-muted/10 border-l border-border"
+          >
+             <div className="w-[400px] h-full overflow-y-auto">
+               <Inspector />
+             </div>
+          </motion.div>
+
+          <motion.div
+             initial={false}
+             animate={{ right: showInspector ? 384 : 16 }}
+             className="absolute top-4 z-50 flex"
+          >
+             <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setShowInspector(!showInspector)}
+                className="w-8 h-8 rounded-full border-border shadow-md bg-background flex items-center justify-center text-foreground hover:bg-muted"
+             >
+                {showInspector ? <ChevronRight className="w-4 h-4 ml-[2px]" /> : <ChevronLeft className="w-4 h-4 mr-[2px]" />}
+             </Button>
+          </motion.div>
         </div>
       </main>
     </div>
