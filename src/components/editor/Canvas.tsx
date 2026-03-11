@@ -20,6 +20,8 @@ export default function Canvas() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
+  const [fsIdle, setFsIdle] = useState(false);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fullscreen toggle
   const toggleFullscreen = useCallback(() => {
@@ -33,10 +35,40 @@ export default function Canvas() {
 
   // Listen for fullscreen changes
   useEffect(() => {
-    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    const handler = () => {
+      const fs = !!document.fullscreenElement;
+      setIsFullscreen(fs);
+      if (!fs) {
+        setFsIdle(false);
+        if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      }
+    };
     document.addEventListener('fullscreenchange', handler);
     return () => document.removeEventListener('fullscreenchange', handler);
   }, []);
+
+  // Fullscreen idle timer: hide controls after 4s of no mouse movement
+  const resetIdleTimer = useCallback(() => {
+    setFsIdle(false);
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(() => setFsIdle(true), 4000);
+  }, []);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    // Start the timer when entering fullscreen
+    resetIdleTimer();
+
+    const onMove = () => resetIdleTimer();
+    document.addEventListener('mousemove', onMove);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    };
+  }, [isFullscreen, resetIdleTimer]);
+
+  // Controls visibility: show on hover OR in fullscreen when not idle
+  const showControls = isFullscreen ? !fsIdle : isHovering;
   
   // Keep external scrubs synchronized
   useEffect(() => {
@@ -103,6 +135,8 @@ export default function Canvas() {
       onDrop={handleDrop}
       onWheel={handleWheel}
       onDoubleClick={toggleFullscreen}
+      onMouseMove={isFullscreen ? resetIdleTimer : undefined}
+      style={{ cursor: isFullscreen && fsIdle ? 'none' : undefined }}
     >
       <div className="w-full h-full relative" style={{ containerType: 'size' }}>
         <div className="absolute inset-0 flex items-center justify-center">
@@ -157,7 +191,7 @@ export default function Canvas() {
             
             {/* Player Controls Overlay */}
             <AnimatePresence>
-              {isHovering && (
+              {showControls && (
                 <motion.div 
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -182,7 +216,7 @@ export default function Canvas() {
 
             {/* Bottom-right controls: Volume + Fullscreen */}
             <AnimatePresence>
-              {isHovering && (
+              {showControls && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
