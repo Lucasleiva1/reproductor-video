@@ -75,7 +75,7 @@ export default function ExportModal() {
         variant="default" 
         onClick={() => setIsOpen(true)}
         disabled={!videoFile || loading}
-        className="w-full font-semibold shadow-lg transition-transform hover:scale-105 active:scale-95 bg-blue-600 hover:bg-blue-700 text-white"
+        className="font-semibold shadow-lg transition-transform hover:scale-105 active:scale-95 bg-blue-600 hover:bg-blue-700 text-white"
       >
         {loading ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : <DownloadCloud className="w-4 h-4 mr-2" />}
         Quick Export

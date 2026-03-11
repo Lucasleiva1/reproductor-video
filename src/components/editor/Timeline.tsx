@@ -7,7 +7,7 @@ import { useState, useRef } from "react";
 import { FaPlay, FaPause } from "react-icons/fa";
 
 export default function Timeline() {
-  const { duration, currentTime, startTime, endTime, setStartTime, setEndTime, zoom, videoUrl, playing, setPlaying, setCurrentTime } = useTimeline();
+  const { duration, currentTime, startTime, endTime, setStartTime, setEndTime, zoom, videoUrl, videoFile, playing, setPlaying, setCurrentTime } = useTimeline();
   const [timelineZoom, setTimelineZoom] = useState(1);
   const trackRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -67,7 +67,7 @@ export default function Timeline() {
       <div className="flex justify-between items-center text-xs text-muted-foreground w-full">
         <div className="flex flex-col gap-1">
           <span className="font-semibold text-lg text-foreground tracking-tight flex items-center gap-4">
-             Timeline & Trimming
+             {videoFile?.name || "Timeline & Trimming"}
              <button onClick={togglePlay} className="flex items-center justify-center bg-blue-600 hover:bg-blue-500 text-white rounded-full w-8 h-8 transition-all">
                 {playing ? <FaPause className="w-3 h-3" /> : <FaPlay className="w-3 h-3 translate-x-0.5" />}
              </button>
