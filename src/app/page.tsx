@@ -85,7 +85,6 @@ export default function Home() {
           <h1 className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
             {t('app_name')}
           </h1>
-          <span className="text-xs font-mono text-muted-foreground border border-border px-2 py-0.5 rounded-full">v1.0.0</span>
         </div>
         
         <div className="flex items-center gap-4">
