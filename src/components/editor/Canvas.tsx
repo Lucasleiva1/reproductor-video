@@ -1,11 +1,11 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import { useTimeline } from "@/hooks/useTimeline";
 import { motion, AnimatePresence } from "framer-motion";
 import dynamic from "next/dynamic";
 import { useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Minimize } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
@@ -14,8 +14,27 @@ export default function Canvas() {
   const { t } = useTranslation();
   const { videoUrl, zoom, posX, posY, playing, setPlaying, currentTime, setCurrentTime, setDuration, duration, setVideoFile, resolution, canvasScale, setCanvasScale } = useTimeline();
   const playerRef = useRef<any>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [isHovering, setIsHovering] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Fullscreen toggle
+  const toggleFullscreen = useCallback(() => {
+    if (!canvasContainerRef.current) return;
+    if (!document.fullscreenElement) {
+      canvasContainerRef.current.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  }, []);
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, []);
   
   // Keep external scrubs synchronized
   useEffect(() => {
@@ -75,11 +94,13 @@ export default function Canvas() {
 
   return (
     <div 
+      ref={canvasContainerRef}
       className="w-full h-full bg-[#121212] overflow-hidden relative backdrop-blur-none p-4 sm:p-8 lg:p-12"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onWheel={handleWheel}
+      onDoubleClick={toggleFullscreen}
     >
       <div className="w-full h-full relative" style={{ containerType: 'size' }}>
         <div className="absolute inset-0 flex items-center justify-center">
@@ -154,6 +175,15 @@ export default function Canvas() {
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Fullscreen Button */}
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
+              className="absolute bottom-3 right-3 z-50 w-9 h-9 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 text-white/70 hover:text-white hover:bg-black/80 flex items-center justify-center transition-all"
+              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+            >
+              {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+            </button>
           </div>
         ) : (
           <div className={`w-full h-full flex flex-col items-center justify-center border-2 border-dashed rounded-xl transition-all ${isDragging ? 'border-blue-500 bg-blue-500/10' : 'border-border bg-muted/20 hover:border-muted-foreground/50 hover:bg-muted/30'}`}>
