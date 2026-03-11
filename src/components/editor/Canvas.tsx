@@ -184,7 +184,7 @@ export default function Canvas() {
                     if (playing) setCurrentTime(state.playedSeconds);
                   }}
                   progressInterval={100}
-                  style={{ objectFit: 'contain' }}
+                  style={{ objectFit: 'cover' }}
                 />
               </motion.div>
             </motion.div>

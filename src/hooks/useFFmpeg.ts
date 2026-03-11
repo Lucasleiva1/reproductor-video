@@ -60,12 +60,13 @@ export function useFFmpeg() {
     
     await ffmpeg.writeFile(inputName, await fetchFile(videoFile));
 
-    // Calculate scaling to "contain" the video inside the target resolution first
+    // Calculate scaling to "cover" the video inside the target resolution (no black bars)
     const targetW = resolution.w;
     const targetH = resolution.h;
     const scaleX = targetW / originalWidth;
     const scaleY = targetH / originalHeight;
-    const baseScale = Math.min(scaleX, scaleY);
+    // Math.max = cover (fill entire canvas, crop overflow). No black bars.
+    const baseScale = Math.max(scaleX, scaleY);
     
     // Zoom: 10 to 500 -> multiplier 0.1 to 5.0
     const finalZoom = zoomVal / 100; 
@@ -94,9 +95,9 @@ export function useFFmpeg() {
     ];
     
     if (format === "mp4" || format === "mp4-muted") {
-      // Create a black canvas of the exact target resolution and overlay the manipulated video.
-      // Overlay supports negative x/y naturally for zooming/cropping!
-      const filterComplex = `color=c=black:s=${cw}x${ch}[bg];[0:v]scale=${fw}:${fh}[vid];[bg][vid]overlay=x=${videoX}:y=${videoY}:shortest=1[outv]`;
+      // Scale the video to cover the canvas, overlay centered, then crop to exact target size.
+      // This ensures no black bars: video fills the frame and excess is cropped.
+      const filterComplex = `[0:v]scale=${fw}:${fh}[vid];color=c=black:s=${cw}x${ch}[bg];[bg][vid]overlay=x=${videoX}:y=${videoY}:shortest=1,crop=${cw}:${ch}:0:0[outv]`;
       
       argList.push(
         "-filter_complex", filterComplex,
