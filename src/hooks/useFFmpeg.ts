@@ -48,14 +48,15 @@ export function useFFmpeg() {
     zoomVal: number,
     posXVal: number,
     posYVal: number,
-    format: "mp4" | "mp3",
+    format: "mp4" | "mp3" | "mp4-muted",
     originalWidth: number,
     originalHeight: number,
     resolution: { w: number, h: number }
   ) => {
     const ffmpeg = ffmpegRef.current;
     const inputName = "input.mp4";
-    const outputName = `output.${format}`;
+    const ext = format.startsWith("mp4") ? "mp4" : format;
+    const outputName = `output.${ext}`;
     
     await ffmpeg.writeFile(inputName, await fetchFile(videoFile));
 
@@ -92,18 +93,25 @@ export function useFFmpeg() {
       "-i", inputName
     ];
     
-    if (format === "mp4") {
+    if (format === "mp4" || format === "mp4-muted") {
       // Create a black canvas of the exact target resolution and overlay the manipulated video.
       // Overlay supports negative x/y naturally for zooming/cropping!
       const filterComplex = `color=c=black:s=${cw}x${ch}[bg];[0:v]scale=${fw}:${fh}[vid];[bg][vid]overlay=x=${videoX}:y=${videoY}:shortest=1[outv]`;
       
       argList.push(
         "-filter_complex", filterComplex,
-        "-map", "[outv]",
-        "-map", "0:a?", // Include audio if present
+        "-map", "[outv]"
+      );
+
+      if (format === "mp4") {
+        argList.push("-map", "0:a?", "-c:a", "aac"); // Include audio if present and re-encode
+      } else {
+        argList.push("-an"); // Strip audio explicitly
+      }
+
+      argList.push(
         "-c:v", "libx264", 
-        "-preset", "ultrafast", 
-        "-c:a", "aac" // Re-encode audio to aac to prevent errors when clipping
+        "-preset", "ultrafast"
       );
     } else {
       // Audio only for mp3
@@ -120,7 +128,7 @@ export function useFFmpeg() {
     }
     
     const data = await ffmpeg.readFile(outputName);
-    const blob = new Blob([data as any], { type: format === "mp4" ? "video/mp4" : "audio/mpeg" });
+    const blob = new Blob([data as any], { type: format.startsWith("mp4") ? "video/mp4" : "audio/mpeg" });
     const url = URL.createObjectURL(blob);
     
     // Provide blob URL

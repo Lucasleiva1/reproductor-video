@@ -17,7 +17,7 @@ export default function ExportModal() {
   const { loaded, loading, progress, renderVideo } = useFFmpeg();
 
   const [isOpen, setIsOpen] = useState(false);
-  const [format, setFormat] = useState<"mp4" | "mp3">("mp4");
+  const [format, setFormat] = useState<"mp4" | "mp3" | "mp4-muted">("mp4");
   const [rendering, setRendering] = useState(false);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
 
@@ -58,7 +58,8 @@ export default function ExportModal() {
     if (resultUrl) {
       const a = document.createElement("a");
       a.href = resultUrl;
-      a.download = `exported-video.${format}`;
+      const ext = format.startsWith("mp4") ? "mp4" : format;
+      a.download = `exported-video.${ext}`;
       a.click();
       setIsOpen(false);
     }
@@ -103,12 +104,13 @@ export default function ExportModal() {
               >
                 <div className="space-y-3">
                   <label className="text-sm font-medium">{t('output_format')}</label>
-                  <Select value={format} onValueChange={(val) => val && setFormat(val as "mp4" | "mp3")}>
+                  <Select value={format} onValueChange={(val) => val && setFormat(val as "mp4" | "mp3" | "mp4-muted")}>
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder={t('format')} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="mp4">{t('video_mp4')}</SelectItem>
+                      <SelectItem value="mp4-muted">{t('video_mp4_muted')}</SelectItem>
                       <SelectItem value="mp3">{t('audio_mp3')}</SelectItem>
                     </SelectContent>
                   </Select>
