@@ -8,6 +8,8 @@ i18n
   .init({
     fallbackLng: 'es',
     supportedLngs: ['en', 'es', 'pt'],
+    load: 'languageOnly',
+    nonExplicitSupportedLngs: true,
     debug: false,
     interpolation: {
       escapeValue: false, // React already safe from xss

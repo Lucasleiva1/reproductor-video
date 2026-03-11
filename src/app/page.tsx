@@ -65,9 +65,9 @@ export default function Home() {
           <ThemeToggle />
           <ExportModal />
           
-          <Select value={i18n.language || 'es'} onValueChange={(val) => i18n.changeLanguage(val)}>
+          <Select value={i18n.resolvedLanguage || 'es'} onValueChange={(val) => i18n.changeLanguage(val as string)}>
             <SelectTrigger className="w-[60px] bg-muted/50 border-border h-9 text-xs font-semibold focus:ring-0 uppercase">
-              <SelectValue />
+              {i18n.resolvedLanguage ? i18n.resolvedLanguage.toUpperCase() : 'ES'}
             </SelectTrigger>
             <SelectContent align="end">
               <SelectItem value="es" className="text-xs">Español</SelectItem>
