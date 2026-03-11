@@ -157,6 +157,14 @@ export default function Timeline() {
           {/* Video track visualization area */}
           <div className="w-full h-16 bg-blue-500/20 border border-blue-500/40 rounded-sm relative flex items-center justify-center">
 
+            {/* Clip info label */}
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 z-0 pointer-events-none flex items-center gap-2 max-w-[50%] overflow-hidden">
+              <div className="w-2 h-2 rounded-full bg-blue-400 shrink-0 animate-pulse" />
+              <span className="text-[11px] font-medium text-blue-300/80 truncate">
+                {videoFile?.name || 'clip'}
+              </span>
+            </div>
+
             {/* Trimming slider overlaying the track */}
             <div className="absolute inset-0 pointer-events-auto flex items-center px-0">
                <Slider 
@@ -178,6 +186,7 @@ export default function Timeline() {
 
       <div className="flex justify-between text-xs font-mono text-muted-foreground">
         <span>{startTime.toFixed(2)}s</span>
+        <span className="text-muted-foreground/60">{t('clip_duration')}: {(endTime - startTime).toFixed(2)}s</span>
         <span>{endTime.toFixed(2)}s</span>
       </div>
     </div>

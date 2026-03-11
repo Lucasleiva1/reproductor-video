@@ -91,8 +91,8 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
       </div>
 
       <div className="text-xs text-muted-foreground bg-muted p-3 rounded-md mt-auto leading-relaxed">
-        <p><strong>Note:</strong> Changes apply only visually overlayed on the proxy canvas.</p>
-        <p className="mt-2">Rendering applies transformations natively via FFmpeg.</p>
+        <p><strong>Note:</strong> {t('inspector_note')}</p>
+        <p className="mt-2">{t('inspector_note_render')}</p>
       </div>
     </div>
   );
