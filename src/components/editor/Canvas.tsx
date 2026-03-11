@@ -5,7 +5,7 @@ import { useTimeline } from "@/hooks/useTimeline";
 import { motion, AnimatePresence } from "framer-motion";
 import dynamic from "next/dynamic";
 import { useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Minimize } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Minimize, Volume2, VolumeX } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
@@ -18,6 +18,8 @@ export default function Canvas() {
   const [isHovering, setIsHovering] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [volume, setVolume] = useState(0.8);
+  const [muted, setMuted] = useState(false);
 
   // Fullscreen toggle
   const toggleFullscreen = useCallback(() => {
@@ -139,6 +141,8 @@ export default function Canvas() {
                   width="100%"
                   height="100%"
                   playing={playing}
+                  volume={volume}
+                  muted={muted}
                   onPlay={() => setPlaying(true)}
                   onPause={() => setPlaying(false)}
                   onDuration={(d: number) => setDuration(d)}
@@ -176,14 +180,53 @@ export default function Canvas() {
               )}
             </AnimatePresence>
 
-            {/* Fullscreen Button */}
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
-              className="absolute bottom-3 right-3 z-50 w-9 h-9 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 text-white/70 hover:text-white hover:bg-black/80 flex items-center justify-center transition-all"
-              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-            >
-              {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
-            </button>
+            {/* Bottom-right controls: Volume + Fullscreen */}
+            <AnimatePresence>
+              {isHovering && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="absolute bottom-3 right-3 z-50 flex items-center gap-2"
+                >
+                  {/* Volume Control */}
+                  <div className="flex items-center gap-1.5 bg-black/60 backdrop-blur-sm border border-white/10 rounded-md px-2 py-1.5 group"
+                       onClick={(e) => e.stopPropagation()}
+                       onDoubleClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      onClick={() => setMuted(!muted)}
+                      className="text-white/70 hover:text-white transition-colors shrink-0"
+                    >
+                      {muted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                    </button>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={muted ? 0 : volume}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        setVolume(v);
+                        if (v > 0 && muted) setMuted(false);
+                      }}
+                      className="w-20 h-1 accent-white appearance-none bg-white/20 rounded-full cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+                    />
+                  </div>
+
+                  {/* Fullscreen Button */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    className="w-9 h-9 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 text-white/70 hover:text-white hover:bg-black/80 flex items-center justify-center transition-all"
+                    title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                  >
+                    {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         ) : (
           <div className={`w-full h-full flex flex-col items-center justify-center border-2 border-dashed rounded-xl transition-all ${isDragging ? 'border-blue-500 bg-blue-500/10' : 'border-border bg-muted/20 hover:border-muted-foreground/50 hover:bg-muted/30'}`}>
