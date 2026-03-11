@@ -101,7 +101,7 @@ export default function Timeline() {
         >
           {/* Scrubbing Ruler Area */}
           <div 
-            className="absolute top-0 left-0 right-0 h-10 cursor-col-resize z-40 hover:bg-white/5 transition-colors"
+            className="absolute top-0 left-0 right-0 h-10 cursor-col-resize z-40 hover:bg-white/5 transition-colors border-b border-border/50"
             onPointerDown={(e) => {
               e.currentTarget.setPointerCapture(e.pointerId);
               handleScrub(e);
@@ -109,7 +109,42 @@ export default function Timeline() {
             onPointerMove={(e) => {
               if (e.buttons === 1) handleScrub(e);
             }}
-          />
+          >
+            {Array.from({ length: Math.ceil(duration) + 1 }).map((_, i) => {
+               if (i > duration) return null;
+               
+               const pxPerSec = (timelineZoom * 1000) / duration;
+               let majorStep = 1;
+               if (pxPerSec < 4) majorStep = 60;
+               else if (pxPerSec < 10) majorStep = 30;
+               else if (pxPerSec < 20) majorStep = 10;
+               else if (pxPerSec < 40) majorStep = 5;
+
+               const isMajor = i % majorStep === 0;
+               const showMinor = pxPerSec > 3;
+
+               if (!isMajor && !showMinor) return null;
+
+               return (
+                 <div 
+                   key={i} 
+                   className="absolute bottom-0 flex flex-col items-center -translate-x-1/2 pointer-events-none"
+                   style={{ left: `${(i / Math.max(duration, 0.1)) * 100}%` }}
+                 >
+                   {isMajor ? (
+                     <>
+                       <span className="text-[10px] text-muted-foreground font-mono select-none leading-none mb-1">
+                         {i >= 60 ? `${Math.floor(i / 60)}:${(i % 60).toString().padStart(2, '0')}` : `${i}s`}
+                       </span>
+                       <div className="w-px h-2 bg-muted-foreground/60"></div>
+                     </>
+                   ) : (
+                     <div className="w-px h-1 bg-muted-foreground/30"></div>
+                   )}
+                 </div>
+               );
+            })}
+          </div>
 
           {/* Progress Head line */}
           <div 
