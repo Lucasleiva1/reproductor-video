@@ -2,10 +2,12 @@ import { create } from "zustand";
 
 export type Resolution = { w: number; h: number; name: string };
 export const RESOLUTIONS: Resolution[] = [
-  { w: 1920, h: 1080, name: "HD (1920x1080)" },
-  { w: 1280, h: 720, name: "720p (1280x720)" },
-  { w: 1080, h: 1920, name: "Vertical (1080x1920)" },
-  { w: 1080, h: 1080, name: "Square (1080x1080)" }
+  { w: 3840, h: 2160, name: "4K (3840×2160)" },
+  { w: 2560, h: 1440, name: "2K (2560×1440)" },
+  { w: 1920, h: 1080, name: "HD (1920×1080)" },
+  { w: 1280, h: 720, name: "720p (1280×720)" },
+  { w: 1080, h: 1920, name: "Vertical (1080×1920)" },
+  { w: 1080, h: 1080, name: "Square (1080×1080)" }
 ];
 
 interface TimelineState {
@@ -47,7 +49,7 @@ export const useTimeline = create<TimelineState>((set) => ({
   posX: 50, // 50 = center
   posY: 50, // 50 = center
   playing: false,
-  resolution: RESOLUTIONS[0],
+  resolution: RESOLUTIONS[2],
 
   setVideoFile: (file, url) => set({ videoFile: file, videoUrl: url, playing: false }),
   setDuration: (duration) => set({ duration, endTime: duration }),
