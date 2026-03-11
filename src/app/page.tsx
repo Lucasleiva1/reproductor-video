@@ -86,19 +86,6 @@ export default function Home() {
             {t('app_name')}
           </h1>
           <span className="text-xs font-mono text-muted-foreground border border-border px-2 py-0.5 rounded-full">v1.0.0</span>
-
-          {/* Timecode Display */}
-          {duration > 0 && (
-            <div className="hidden sm:flex items-center gap-2 bg-muted/50 border border-border rounded-md px-3 py-1">
-              <span className="text-sm font-mono font-semibold text-blue-400 tabular-nums tracking-wider">
-                {formatTimecode(currentTime)}
-              </span>
-              <span className="text-[10px] text-muted-foreground">/</span>
-              <span className="text-xs font-mono text-muted-foreground tabular-nums">
-                {formatTimecode(duration)}
-              </span>
-            </div>
-          )}
         </div>
         
         <div className="flex items-center gap-4">
