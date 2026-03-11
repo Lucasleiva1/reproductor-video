@@ -5,7 +5,7 @@ import { useTimeline } from "@/hooks/useTimeline";
 import { motion, AnimatePresence } from "framer-motion";
 import dynamic from "next/dynamic";
 import { useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Minimize, Volume2, VolumeX } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Minimize, Volume2, VolumeX, Lock, Unlock } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
@@ -21,6 +21,7 @@ export default function Canvas() {
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
   const [fsIdle, setFsIdle] = useState(false);
+  const [fsFreeMode, setFsFreeMode] = useState(false);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fullscreen toggle
@@ -40,6 +41,7 @@ export default function Canvas() {
       setIsFullscreen(fs);
       if (!fs) {
         setFsIdle(false);
+        setFsFreeMode(false);
         if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
       }
     };
@@ -77,9 +79,16 @@ export default function Canvas() {
     }
   }, [currentTime]);
 
-  const scale = zoom / 100; // 0.1x to 5.0x
-  const translateX = (posX - 50) * -1; // -50 to 50%
-  const translateY = (posY - 50) * -1; // -50 to 50%
+  const scale = zoom / 100;
+  const translateX = (posX - 50) * -1;
+  const translateY = (posY - 50) * -1;
+
+  // In fullscreen fixed mode: ignore transforms, video fills screen
+  const isFixedMode = isFullscreen && !fsFreeMode;
+  const effectiveScale = isFixedMode ? 1 : scale;
+  const effectiveTranslateX = isFixedMode ? 0 : translateX;
+  const effectiveTranslateY = isFixedMode ? 0 : translateY;
+  const effectiveCanvasScale = isFixedMode ? 1 : canvasScale;
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -129,7 +138,7 @@ export default function Canvas() {
   return (
     <div 
       ref={canvasContainerRef}
-      className="w-full h-full bg-[#121212] overflow-hidden relative backdrop-blur-none p-4 sm:p-8 lg:p-12"
+      className={`w-full h-full bg-[#121212] overflow-hidden relative backdrop-blur-none ${isFixedMode ? 'p-0' : 'p-4 sm:p-8 lg:p-12'}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -142,18 +151,21 @@ export default function Canvas() {
         <div className="absolute inset-0 flex items-center justify-center">
           {videoUrl ? (
           <div 
-            className="w-full h-full relative flex flex-col items-center justify-center p-[2vmin]"
+            className={`w-full h-full relative flex flex-col items-center justify-center ${isFixedMode ? 'p-0' : 'p-[2vmin]'}`}
             onMouseEnter={() => setIsHovering(true)}
             onMouseLeave={() => setIsHovering(false)}
           >
             {/* The Actual "Screen" / Video Boundary */}
             <motion.div 
-              className="relative flex items-center justify-center overflow-hidden rounded-[4px] bg-black ring-[1px] ring-white/10 shadow-2xl shrink-0 transition-shadow duration-300"
+              className={`relative flex items-center justify-center overflow-hidden shrink-0 transition-shadow duration-300 ${isFixedMode ? 'bg-black' : 'rounded-[4px] bg-black ring-[1px] ring-white/10 shadow-2xl'}`}
               animate={{
-                scale: canvasScale
+                scale: effectiveCanvasScale
               }}
               transition={{ type: "spring", stiffness: 400, damping: 40 }}
-              style={{
+              style={isFixedMode ? {
+                width: '100%',
+                height: '100%',
+              } : {
                 aspectRatio: `${resolution.w} / ${resolution.h}`,
                 height: '100%',
                 maxHeight: '100%',
@@ -162,9 +174,9 @@ export default function Canvas() {
             >
               <motion.div
                 animate={{
-                  scale,
-                  x: `${translateX}%`,
-                  y: `${translateY}%`,
+                  scale: effectiveScale,
+                  x: `${effectiveTranslateX}%`,
+                  y: `${effectiveTranslateY}%`,
                 }}
                 transition={{ type: "spring", stiffness: 300, damping: 30 }}
                 className="w-full h-full flex items-center justify-center origin-center"
@@ -184,10 +196,27 @@ export default function Canvas() {
                     if (playing) setCurrentTime(state.playedSeconds);
                   }}
                   progressInterval={100}
-                  style={{ objectFit: 'contain' }}
+                  style={{ objectFit: isFixedMode ? 'contain' : 'contain' }}
                 />
               </motion.div>
             </motion.div>
+
+            {/* Fullscreen Mode Toggle: Fixed / Free (top-left, only in fullscreen) */}
+            <AnimatePresence>
+              {isFullscreen && showControls && (
+                <motion.button
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  onClick={(e) => { e.stopPropagation(); setFsFreeMode(!fsFreeMode); }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  className="absolute top-3 left-3 z-50 flex items-center gap-2 bg-black/60 backdrop-blur-sm border border-white/10 rounded-md px-3 py-2 text-white/70 hover:text-white hover:bg-black/80 transition-all text-xs font-medium"
+                >
+                  {fsFreeMode ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                  <span>{fsFreeMode ? 'Libre' : 'Fijo'}</span>
+                </motion.button>
+              )}
+            </AnimatePresence>
             
             {/* Player Controls Overlay */}
             <AnimatePresence>
