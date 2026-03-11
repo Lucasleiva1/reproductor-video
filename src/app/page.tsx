@@ -134,10 +134,8 @@ export default function Home() {
           {/* Keyboard Shortcuts Tooltip */}
           <TooltipProvider>
             <Tooltip>
-              <TooltipTrigger>
-                <Button variant="ghost" size="icon" className="w-9 h-9 text-muted-foreground hover:text-foreground">
+              <TooltipTrigger className="inline-flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
                   <Keyboard className="w-4 h-4" />
-                </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom" align="end" className="max-w-xs">
                 <p className="font-semibold mb-2">{t('keyboard_shortcuts')}</p>
