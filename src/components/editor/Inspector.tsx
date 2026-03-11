@@ -5,6 +5,7 @@ import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { RotateCcw } from "lucide-react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 const ScrubbableNumber = ({ value, onChange, min, max, step = 1, format = (v: number) => v.toString() }: any) => {
   const handlePointerDown = (e: React.PointerEvent<HTMLSpanElement>) => {
@@ -44,20 +45,21 @@ const ScrubbableNumber = ({ value, onChange, min, max, step = 1, format = (v: nu
 };
 
 export default function Inspector() {
+  const { t } = useTranslation();
   const { zoom, posX, posY, setZoom, setPosX, setPosY, resetTransform } = useTimeline();
 
   return (
     <div className="w-full h-full bg-background/95 backdrop-blur-sm p-6 flex flex-col gap-6">
       <div className="flex items-center justify-between pb-4 border-b border-border/50">
-        <h2 className="text-lg font-semibold tracking-tight">Inspector</h2>
-        <Button variant="ghost" size="icon" onClick={resetTransform} title="Reset All">
+        <h2 className="text-lg font-semibold tracking-tight">{t('inspector')}</h2>
+        <Button variant="ghost" size="icon" onClick={resetTransform} title={t('reset_all')}>
           <RotateCcw className="w-4 h-4" />
         </Button>
       </div>
 
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">Zoom</span>
+          <span className="text-sm font-medium">{t('zoom')}</span>
           <ScrubbableNumber value={zoom} onChange={setZoom} min={10} max={500} step={1} format={(v: number) => `${(v/100).toFixed(1)}x`} />
         </div>
         <Slider value={[zoom]} min={10} max={500} onValueChange={(val) => setZoom(Array.isArray(val) ? val[0] : val as number)} />
@@ -65,7 +67,7 @@ export default function Inspector() {
 
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">Position X</span>
+          <span className="text-sm font-medium">{t('position_x')}</span>
           <ScrubbableNumber value={posX} onChange={setPosX} min={0} max={100} step={0.5} format={(v: number) => `${v.toFixed(0)}%`} />
         </div>
         <Slider value={[posX]} min={0} max={100} onValueChange={(val) => setPosX(Array.isArray(val) ? val[0] : val as number)} />
@@ -73,7 +75,7 @@ export default function Inspector() {
 
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">Position Y</span>
+          <span className="text-sm font-medium">{t('position_y')}</span>
           <ScrubbableNumber value={posY} onChange={setPosY} min={0} max={100} step={0.5} format={(v: number) => `${v.toFixed(0)}%`} />
         </div>
         <Slider value={[posY]} min={0} max={100} onValueChange={(val) => setPosY(Array.isArray(val) ? val[0] : val as number)} />

@@ -9,8 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useState, useEffect } from "react";
 import { DownloadCloud, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTranslation } from "react-i18next";
 
 export default function ExportModal() {
+  const { t } = useTranslation();
   const { videoFile, startTime, endTime, zoom, posX, posY, resolution } = useTimeline();
   const { loaded, loading, progress, renderVideo } = useFFmpeg();
 
@@ -78,15 +80,15 @@ export default function ExportModal() {
         className="font-semibold shadow-lg transition-transform hover:scale-105 active:scale-95 bg-blue-600 hover:bg-blue-700 text-white"
       >
         {loading ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : <DownloadCloud className="w-4 h-4 mr-2" />}
-        Quick Export
+        {t('quick_export')}
       </Button>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="sm:max-w-md bg-background/95 backdrop-blur-xl border border-border shadow-2xl">
           <DialogHeader>
-            <DialogTitle className="text-xl">Export Media</DialogTitle>
+            <DialogTitle className="text-xl">{t('export_media')}</DialogTitle>
             <DialogDescription>
-              Render your Quick-Cutter edits via local browser FFmpeg.wasm.
+              {t('export_desc')}
             </DialogDescription>
           </DialogHeader>
 
@@ -100,39 +102,39 @@ export default function ExportModal() {
                  className="flex flex-col gap-6 py-4"
               >
                 <div className="space-y-3">
-                  <label className="text-sm font-medium">Output Format</label>
+                  <label className="text-sm font-medium">{t('output_format')}</label>
                   <Select value={format} onValueChange={(val) => val && setFormat(val as "mp4" | "mp3")}>
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Format" />
+                      <SelectValue placeholder={t('format')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="mp4">Video (MP4)</SelectItem>
-                      <SelectItem value="mp3">Audio Only (MP3)</SelectItem>
+                      <SelectItem value="mp4">{t('video_mp4')}</SelectItem>
+                      <SelectItem value="mp3">{t('audio_mp3')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground bg-muted p-4 rounded-md">
                    <div>
-                     <span className="block font-semibold">Start:</span> {startTime.toFixed(2)}s
+                     <span className="block font-semibold">{t('start')}:</span> {startTime.toFixed(2)}s
                    </div>
                    <div>
-                     <span className="block font-semibold">End:</span> {endTime.toFixed(2)}s
+                     <span className="block font-semibold">{t('end')}:</span> {endTime.toFixed(2)}s
                    </div>
                    <div>
-                     <span className="block font-semibold">Resolution:</span> {resolution.name}
+                     <span className="block font-semibold">{t('resolution')}:</span> {resolution.name}
                    </div>
                    <div>
-                     <span className="block font-semibold">Zoom Scale:</span> {(zoom / 100).toFixed(1)}x
+                     <span className="block font-semibold">{t('zoom_scale')}:</span> {(zoom / 100).toFixed(1)}x
                    </div>
                    <div>
-                     <span className="block font-semibold">Local FFmpeg:</span> {loaded ? "Ready" : "Loading"}
+                     <span className="block font-semibold">{t('local_ffmpeg')}:</span> {loaded ? t('ready') : t('loading')}
                    </div>
                 </div>
 
                 <div className="flex justify-end gap-2 mt-4">
-                   <Button variant="ghost" onClick={() => setIsOpen(false)}>Cancel</Button>
-                   <Button onClick={handleRender} className="bg-blue-600 text-white hover:bg-blue-700">Start Render</Button>
+                   <Button variant="ghost" onClick={() => setIsOpen(false)}>{t('cancel')}</Button>
+                   <Button onClick={handleRender} className="bg-blue-600 text-white hover:bg-blue-700">{t('start_render')}</Button>
                 </div>
               </motion.div>
             ) : rendering ? (
@@ -145,9 +147,9 @@ export default function ExportModal() {
               >
                 <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
                 <div className="w-full space-y-2 text-center">
-                  <div className="text-lg font-medium">Rendering Frame by Frame...</div>
+                  <div className="text-lg font-medium">{t('rendering')}</div>
                   <Progress value={progress} className="h-3 w-full" />
-                  <div className="text-sm text-muted-foreground font-mono">{progress}% Complete</div>
+                  <div className="text-sm text-muted-foreground font-mono">{progress}% {t('complete')}</div>
                 </div>
               </motion.div>
             ) : resultUrl ? (
@@ -160,9 +162,9 @@ export default function ExportModal() {
                  <div className="w-16 h-16 rounded-full bg-green-500/20 text-green-500 flex items-center justify-center">
                    <DownloadCloud className="w-8 h-8" />
                  </div>
-                 <div className="text-lg font-semibold text-center">Render Complete!</div>
+                 <div className="text-lg font-semibold text-center">{t('render_complete')}</div>
                  <Button onClick={handleDownload} size="lg" className="w-full font-bold">
-                   Download File
+                   {t('download_file')}
                  </Button>
                </motion.div>
             ) : null}

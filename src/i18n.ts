@@ -1,0 +1,130 @@
+import i18n from 'i18next';
+import { initReactI18next } from 'react-i18next';
+import LanguageDetector from 'i18next-browser-languagedetector';
+
+i18n
+  .use(LanguageDetector)
+  .use(initReactI18next)
+  .init({
+    fallbackLng: 'es',
+    supportedLngs: ['en', 'es', 'pt'],
+    debug: false,
+    interpolation: {
+      escapeValue: false, // React already safe from xss
+    },
+    resources: {
+      en: {
+        translation: {
+          app_name: "FG Reproductor",
+          change_video: "Change Video",
+          resolution: "Resolution",
+          drop_here: "Drop your video here",
+          upload_media: "Upload project media",
+          upload_desc: "Drag and drop your video file directly here, or click to browse your computer.",
+          timeline_title: "Timeline & Trimming",
+          timeline_desc: "Adjust the sliders below to cut the start and end of the export.",
+          zoom: "Zoom",
+          inspector: "Inspector",
+          reset_all: "Reset All",
+          transform: "Transform",
+          zoom_scale: "Zoom Scale",
+          position_x: "Position X",
+          position_y: "Position Y",
+          quick_export: "Quick Export",
+          export_media: "Export Media",
+          export_desc: "Render your Quick-Cutter edits via local browser FFmpeg.wasm.",
+          output_format: "Output Format",
+          format: "Format",
+          video_mp4: "Video (MP4)",
+          audio_mp3: "Audio Only (MP3)",
+          start: "Start",
+          end: "End",
+          local_ffmpeg: "Local FFmpeg",
+          ready: "Ready",
+          loading: "Loading",
+          cancel: "Cancel",
+          start_render: "Start Render",
+          rendering: "Rendering Frame by Frame...",
+          complete: "Complete",
+          render_complete: "Render Complete!",
+          download_file: "Download File",
+        }
+      },
+      es: {
+        translation: {
+          app_name: "FG Reproductor",
+          change_video: "Cambiar Video",
+          resolution: "Resolución",
+          drop_here: "Suelta tu video aquí",
+          upload_media: "Subir archivo de proyecto",
+          upload_desc: "Arrastra y suelta tu archivo de video aquí directamente, o haz clic para buscar en tu computadora.",
+          timeline_title: "Línea de Tiempo y Recorte",
+          timeline_desc: "Ajusta los controles deslizantes a continuación para cortar el inicio y el final de la exportación.",
+          zoom: "Zoom",
+          inspector: "Inspector",
+          reset_all: "Restablecer todo",
+          transform: "Transformar",
+          zoom_scale: "Escala de Zoom",
+          position_x: "Posición X",
+          position_y: "Posición Y",
+          quick_export: "Exportación Rápida",
+          export_media: "Exportar Multimedia",
+          export_desc: "Renderiza tus ediciones de Corte Rápido a través de FFmpeg.wasm local en el navegador.",
+          output_format: "Formato de Salida",
+          format: "Formato",
+          video_mp4: "Video (MP4)",
+          audio_mp3: "Solo Audio (MP3)",
+          start: "Inicio",
+          end: "Fin",
+          local_ffmpeg: "FFmpeg Local",
+          ready: "Listo",
+          loading: "Cargando",
+          cancel: "Cancelar",
+          start_render: "Iniciar Renderizado",
+          rendering: "Renderizando fotograma a fotograma...",
+          complete: "Completado",
+          render_complete: "¡Renderizado Completo!",
+          download_file: "Descargar Archivo",
+        }
+      },
+      pt: {
+        translation: {
+          app_name: "Reprodutor FG",
+          change_video: "Mudar Vídeo",
+          resolution: "Resolução",
+          drop_here: "Solte seu vídeo aqui",
+          upload_media: "Carregar mídia do projeto",
+          upload_desc: "Arraste e solte o seu ficheiro de vídeo diretamente aqui, ou clique para procurar no seu computador.",
+          timeline_title: "Linha do Tempo e Corte",
+          timeline_desc: "Ajuste os controles deslizantes abaixo para cortar o início e o fim da exportação.",
+          zoom: "Zoom",
+          inspector: "Inspetor",
+          reset_all: "Redefinir tudo",
+          transform: "Transformar",
+          zoom_scale: "Escala de Zoom",
+          position_x: "Posição X",
+          position_y: "Posição Y",
+          quick_export: "Exportação Rápida",
+          export_media: "Exportar Mídia",
+          export_desc: "Renderize suas edições de Corte Rápido via FFmpeg.wasm local do navegador.",
+          output_format: "Formato de Saída",
+          format: "Formato",
+          video_mp4: "Vídeo (MP4)",
+          audio_mp3: "Apenas Áudio (MP3)",
+          start: "Início",
+          end: "Fim",
+          local_ffmpeg: "FFmpeg Local",
+          ready: "Pronto",
+          loading: "Carregando",
+          cancel: "Cancelar",
+          start_render: "Iniciar Renderização",
+          rendering: "Renderizando quadro a quadro...",
+          complete: "Completo",
+          render_complete: "Renderização Completa!",
+          download_file: "Baixar Arquivo",
+        }
+      }
+    }
+  });
+
+export default i18n;

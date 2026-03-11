@@ -9,8 +9,10 @@ import { useTimeline, RESOLUTIONS } from "@/hooks/useTimeline";
 import { Button } from "@/components/ui/button";
 import { Upload } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useTranslation } from "react-i18next";
 
 export default function Home() {
+  const { t, i18n } = useTranslation();
   const { setVideoFile, resolution, setResolution } = useTimeline();
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -27,7 +29,7 @@ export default function Home() {
       <header className="h-14 border-b border-border px-6 flex items-center justify-between bg-background/95 backdrop-blur-md z-10 shrink-0">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
-            FG Reproductor
+            {t('app_name')}
           </h1>
           <span className="text-xs font-mono text-muted-foreground border border-border px-2 py-0.5 rounded-full">v1.0.0</span>
         </div>
@@ -42,7 +44,7 @@ export default function Home() {
             />
             <Button variant="outline" className="gap-2 bg-muted/50 transition-colors group-hover:bg-muted group-hover:text-foreground">
               <Upload className="w-4 h-4" />
-              Change Video
+              {t('change_video')}
             </Button>
           </div>
           
@@ -51,7 +53,7 @@ export default function Home() {
             onValueChange={(val) => setResolution(RESOLUTIONS.find(r => r.name === val)!)}
           >
             <SelectTrigger className="w-[200px] bg-muted/50 border-border h-9 text-xs">
-              <SelectValue placeholder="Resolution" />
+              <SelectValue placeholder={t('resolution')} />
             </SelectTrigger>
             <SelectContent>
               {RESOLUTIONS.map(r => (
@@ -62,6 +64,17 @@ export default function Home() {
 
           <ThemeToggle />
           <ExportModal />
+          
+          <Select value={i18n.language || 'es'} onValueChange={(val) => i18n.changeLanguage(val)}>
+            <SelectTrigger className="w-[60px] bg-muted/50 border-border h-9 text-xs font-semibold focus:ring-0 uppercase">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end">
+              <SelectItem value="es" className="text-xs">Español</SelectItem>
+              <SelectItem value="en" className="text-xs">English</SelectItem>
+              <SelectItem value="pt" className="text-xs">Português</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </header>
 

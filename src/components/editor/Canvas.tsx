@@ -6,10 +6,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import dynamic from "next/dynamic";
 import { useState } from "react";
 import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
 
 export default function Canvas() {
+  const { t } = useTranslation();
   const { videoUrl, zoom, posX, posY, playing, setPlaying, currentTime, setCurrentTime, setDuration, duration, setVideoFile, resolution, canvasScale, setCanvasScale } = useTimeline();
   const playerRef = useRef<any>(null);
   const [isHovering, setIsHovering] = useState(false);
@@ -162,10 +164,10 @@ export default function Canvas() {
               </div>
               <div className="space-y-1">
                 <p className="text-xl font-medium tracking-tight text-foreground">
-                  {isDragging ? "Drop your video here" : "Upload project media"}
+                  {isDragging ? t('drop_here') : t('upload_media')}
                 </p>
                 <p className="text-sm text-muted-foreground max-w-sm">
-                  Drag and drop your video file directly here, or click to browse your computer.
+                  {t('upload_desc')}
                 </p>
               </div>
             </label>
