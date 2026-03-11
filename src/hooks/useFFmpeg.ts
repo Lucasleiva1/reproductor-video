@@ -60,13 +60,14 @@ export function useFFmpeg() {
     
     await ffmpeg.writeFile(inputName, await fetchFile(videoFile));
 
-    // Calculate scaling to "cover" the video inside the target resolution (no black bars)
+    // Calculate scaling to "contain" the video inside the target resolution (letterbox)
+    // This preserves aspect ratio and adds equal black bars when centered, like DaVinci Resolve
     const targetW = resolution.w;
     const targetH = resolution.h;
     const scaleX = targetW / originalWidth;
     const scaleY = targetH / originalHeight;
-    // Math.max = cover (fill entire canvas, crop overflow). No black bars.
-    const baseScale = Math.max(scaleX, scaleY);
+    // Math.min = contain (fit inside, with letterbox bars if aspect ratios differ)
+    const baseScale = Math.min(scaleX, scaleY);
     
     // Zoom: 10 to 500 -> multiplier 0.1 to 5.0
     const finalZoom = zoomVal / 100; 
@@ -80,10 +81,16 @@ export function useFFmpeg() {
     const cw = Math.floor(targetW / 2) * 2;
     const ch = Math.floor(targetH / 2) * 2;
     
-    // Calculate the absolute X and Y of the video on the canvas. 
-    // If posX is 50, it is centered. If posX is 0, it pushes the video right (by +50%).
-    const videoX = Math.round((cw - fw) / 2 + ((50 - posXVal) / 100) * fw);
-    const videoY = Math.round((ch - fh) / 2 + ((50 - posYVal) / 100) * fh);
+    // Calculate overlay position on the black canvas.
+    // posX/posY range 0-100, where 50 = centered.
+    // When centered (50): videoX = (cw - fw) / 2 → equal bars on both sides.
+    // The offset is relative to the canvas size for intuitive panning.
+    const centerX = (cw - fw) / 2;
+    const centerY = (ch - fh) / 2;
+    const offsetX = ((posXVal - 50) / 50) * centerX;  // posX > 50 moves right
+    const offsetY = ((posYVal - 50) / 50) * centerY;  // posY > 50 moves down
+    const videoX = Math.round(centerX + offsetX);
+    const videoY = Math.round(centerY + offsetY);
     
     const dur = endTime - startTime;
 
@@ -95,9 +102,9 @@ export function useFFmpeg() {
     ];
     
     if (format === "mp4" || format === "mp4-muted") {
-      // Scale the video to cover the canvas, overlay centered, then crop to exact target size.
-      // This ensures no black bars: video fills the frame and excess is cropped.
-      const filterComplex = `[0:v]scale=${fw}:${fh}[vid];color=c=black:s=${cw}x${ch}[bg];[bg][vid]overlay=x=${videoX}:y=${videoY}:shortest=1,crop=${cw}:${ch}:0:0[outv]`;
+      // Create a black canvas, scale the video to fit (contain), and overlay centered.
+      // Overlay supports negative x/y naturally for panning/zooming.
+      const filterComplex = `color=c=black:s=${cw}x${ch}[bg];[0:v]scale=${fw}:${fh}[vid];[bg][vid]overlay=x=${videoX}:y=${videoY}:shortest=1[outv]`;
       
       argList.push(
         "-filter_complex", filterComplex,
