@@ -76,9 +76,9 @@ export default function Timeline() {
           </span>
           <span>{t('timeline_desc')}</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 mr-12">
           <span>{t('zoom')} ({timelineZoom}x)</span>
-          <div className="w-32">
+          <div className="w-24">
             <Slider value={[timelineZoom]} min={1} max={10} step={0.1} onValueChange={(val) => setTimelineZoom(Array.isArray(val) ? val[0] : val as number)} />
           </div>
         </div>
