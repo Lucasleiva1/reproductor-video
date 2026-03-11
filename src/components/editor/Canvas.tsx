@@ -10,7 +10,7 @@ import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed } 
 const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
 
 export default function Canvas() {
-  const { videoUrl, zoom, posX, posY, playing, setPlaying, currentTime, setCurrentTime, setDuration, duration, setVideoFile } = useTimeline();
+  const { videoUrl, zoom, posX, posY, playing, setPlaying, currentTime, setCurrentTime, setDuration, duration, setVideoFile, resolution, canvasScale, setCanvasScale } = useTimeline();
   const playerRef = useRef<any>(null);
   const [isHovering, setIsHovering] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -59,21 +59,48 @@ export default function Canvas() {
     setCurrentTime(newTime);
   };
 
+  const handleWheel = (e: React.WheelEvent) => {
+    // Prevent zooming the actual browser window
+    if (e.ctrlKey || e.metaKey) {
+       e.preventDefault();
+    }
+    
+    // Scale up or down
+    const delta = e.deltaY * -0.001;
+    const newScale = Math.min(Math.max(0.1, canvasScale + delta), 3.0);
+    setCanvasScale(newScale);
+  };
+
   return (
     <div 
-      className="w-full h-full bg-black overflow-hidden relative backdrop-blur-none"
+      className="w-full h-full bg-[#121212] overflow-hidden relative backdrop-blur-none p-4 sm:p-8 lg:p-12"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      onWheel={handleWheel}
     >
-      <div className="absolute inset-0 flex items-center justify-center p-4">
-        {videoUrl ? (
+      <div className="w-full h-full relative" style={{ containerType: 'size' }}>
+        <div className="absolute inset-0 flex items-center justify-center">
+          {videoUrl ? (
           <div 
-            className="w-full h-full relative flex flex-col items-center justify-center overflow-hidden"
+            className="w-full h-full relative flex flex-col items-center justify-center p-[2vmin]"
             onMouseEnter={() => setIsHovering(true)}
             onMouseLeave={() => setIsHovering(false)}
           >
-            <div className="w-full h-full relative flex items-center justify-center overflow-hidden rounded-md bg-black shadow-2xl">
+            {/* The Actual "Screen" / Video Boundary */}
+            <motion.div 
+              className="relative flex items-center justify-center overflow-hidden rounded-[4px] bg-black ring-[1px] ring-white/10 shadow-2xl shrink-0 transition-shadow duration-300"
+              animate={{
+                scale: canvasScale
+              }}
+              transition={{ type: "spring", stiffness: 400, damping: 40 }}
+              style={{
+                aspectRatio: `${resolution.w} / ${resolution.h}`,
+                height: '100%',
+                maxHeight: '100%',
+                maxWidth: '100%',
+              }}
+            >
               <motion.div
                 animate={{
                   scale,
@@ -81,7 +108,7 @@ export default function Canvas() {
                   y: `${translateY}%`,
                 }}
                 transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                className="w-full h-full flex items-center justify-center"
+                className="w-full h-full flex items-center justify-center origin-center"
               >
                 <ReactPlayer
                   ref={playerRef}
@@ -99,7 +126,7 @@ export default function Canvas() {
                   style={{ objectFit: 'contain' }}
                 />
               </motion.div>
-            </div>
+            </motion.div>
             
             {/* Player Controls Overlay */}
             <AnimatePresence>
@@ -144,6 +171,7 @@ export default function Canvas() {
             </label>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

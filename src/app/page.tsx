@@ -5,12 +5,13 @@ import Timeline from "@/components/editor/Timeline";
 import Inspector from "@/components/editor/Inspector";
 import ExportModal from "@/components/ui/ExportModal";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import { useTimeline } from "@/hooks/useTimeline";
+import { useTimeline, RESOLUTIONS } from "@/hooks/useTimeline";
 import { Button } from "@/components/ui/button";
 import { Upload } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function Home() {
-  const { setVideoFile } = useTimeline();
+  const { setVideoFile, resolution, setResolution } = useTimeline();
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -44,6 +45,21 @@ export default function Home() {
               Change Video
             </Button>
           </div>
+          
+          <Select 
+            value={resolution.name} 
+            onValueChange={(val) => setResolution(RESOLUTIONS.find(r => r.name === val)!)}
+          >
+            <SelectTrigger className="w-[200px] bg-muted/50 border-border h-9 text-xs">
+              <SelectValue placeholder="Resolution" />
+            </SelectTrigger>
+            <SelectContent>
+              {RESOLUTIONS.map(r => (
+                <SelectItem key={r.name} value={r.name} className="text-xs">{r.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <ThemeToggle />
           <ExportModal />
         </div>
@@ -51,8 +67,8 @@ export default function Home() {
 
       {/* Main Editing Area */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Top: Video Preview */}
-        <div className="flex-1 bg-black flex flex-col relative w-full border-b border-border shadow-inner">
+        {/* Top: Video Preview Workspace */}
+        <div className="flex-1 bg-[#121212] flex flex-col relative w-full border-b border-border shadow-inner">
           <Canvas />
         </div>
         

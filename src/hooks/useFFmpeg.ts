@@ -50,7 +50,8 @@ export function useFFmpeg() {
     posYVal: number,
     format: "mp4" | "mp3",
     originalWidth: number,
-    originalHeight: number
+    originalHeight: number,
+    resolution: { w: number, h: number }
   ) => {
     const ffmpeg = ffmpegRef.current;
     const inputName = "input.mp4";
@@ -58,37 +59,52 @@ export function useFFmpeg() {
     
     await ffmpeg.writeFile(inputName, await fetchFile(videoFile));
 
-    // Calculate crop parameters
-    // Zoom: 10 to 500 -> scale 0.1x to 5.0x
-    const scale = zoomVal / 100; 
+    // Calculate scaling to "contain" the video inside the target resolution first
+    const targetW = resolution.w;
+    const targetH = resolution.h;
+    const scaleX = targetW / originalWidth;
+    const scaleY = targetH / originalHeight;
+    const baseScale = Math.min(scaleX, scaleY);
     
-    const cropW = originalWidth / scale;
-    const cropH = originalHeight / scale;
+    // Zoom: 10 to 500 -> multiplier 0.1 to 5.0
+    const finalZoom = zoomVal / 100; 
     
-    const maxPosX = originalWidth - cropW;
-    const maxPosY = originalHeight - cropH;
+    const finalW = originalWidth * baseScale * finalZoom;
+    const finalH = originalHeight * baseScale * finalZoom;
     
-    const cropX = (posXVal / 100) * maxPosX;
-    const cropY = (posYVal / 100) * maxPosY;
-
-    const w = Math.floor(cropW / 2) * 2;
-    const h = Math.floor(cropH / 2) * 2;
-    const x = Math.floor(cropX / 2) * 2;
-    const y = Math.floor(cropY / 2) * 2;
+    // Ensure all dimensions are even (FFmpeg requirement for libx264)
+    const fw = Math.floor(finalW / 2) * 2;
+    const fh = Math.floor(finalH / 2) * 2;
+    const cw = Math.floor(targetW / 2) * 2;
+    const ch = Math.floor(targetH / 2) * 2;
+    
+    // Calculate the absolute X and Y of the video on the canvas. 
+    // If posX is 50, it is centered. If posX is 0, it pushes the video right (by +50%).
+    const videoX = Math.round((cw - fw) / 2 + ((50 - posXVal) / 100) * fw);
+    const videoY = Math.round((ch - fh) / 2 + ((50 - posYVal) / 100) * fh);
     
     const dur = endTime - startTime;
 
     // Apply trim params as inputs for much faster processing
-    const argList = [
+    let argList = [
       "-ss", startTime.toFixed(3), 
       "-t", dur.toFixed(3),
       "-i", inputName
     ];
     
     if (format === "mp4") {
-      // Crop for Mp4 and encode incredibly fast
-      argList.push("-vf", `crop=${w}:${h}:${x}:${y}`);
-      argList.push("-c:v", "libx264", "-preset", "ultrafast", "-c:a", "copy");
+      // Create a black canvas of the exact target resolution and overlay the manipulated video.
+      // Overlay supports negative x/y naturally for zooming/cropping!
+      const filterComplex = `color=c=black:s=${cw}x${ch}[bg];[0:v]scale=${fw}:${fh}[vid];[bg][vid]overlay=x=${videoX}:y=${videoY}:shortest=1[outv]`;
+      
+      argList.push(
+        "-filter_complex", filterComplex,
+        "-map", "[outv]",
+        "-map", "0:a?", // Include audio if present
+        "-c:v", "libx264", 
+        "-preset", "ultrafast", 
+        "-c:a", "aac" // Re-encode audio to aac to prevent errors when clipping
+      );
     } else {
       // Audio only for mp3
       argList.push("-vn", "-c:a", "libmp3lame");

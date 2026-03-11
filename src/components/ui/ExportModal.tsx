@@ -11,7 +11,7 @@ import { DownloadCloud, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function ExportModal() {
-  const { videoFile, startTime, endTime, zoom, posX, posY } = useTimeline();
+  const { videoFile, startTime, endTime, zoom, posX, posY, resolution } = useTimeline();
   const { loaded, loading, progress, renderVideo } = useFFmpeg();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -41,7 +41,8 @@ export default function ExportModal() {
         posY,
         format,
         tempVideo.videoWidth,
-        tempVideo.videoHeight
+        tempVideo.videoHeight,
+        resolution
       );
       setResultUrl(url);
     } catch (e) {
@@ -119,7 +120,10 @@ export default function ExportModal() {
                      <span className="block font-semibold">End:</span> {endTime.toFixed(2)}s
                    </div>
                    <div>
-                     <span className="block font-semibold">Zoom Scale:</span> {(1 + (zoom / 100) * 4).toFixed(1)}x
+                     <span className="block font-semibold">Resolution:</span> {resolution.name}
+                   </div>
+                   <div>
+                     <span className="block font-semibold">Zoom Scale:</span> {(zoom / 100).toFixed(1)}x
                    </div>
                    <div>
                      <span className="block font-semibold">Local FFmpeg:</span> {loaded ? "Ready" : "Loading"}
