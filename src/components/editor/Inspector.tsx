@@ -3,7 +3,7 @@
 import { useTimeline } from "@/hooks/useTimeline";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, ChevronRight } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -44,17 +44,26 @@ const ScrubbableNumber = ({ value, onChange, min, max, step = 1, format = (v: nu
   );
 };
 
-export default function Inspector() {
+export default function Inspector({ onClose }: { onClose?: () => void }) {
   const { t } = useTranslation();
   const { zoom, posX, posY, setZoom, setPosX, setPosY, resetTransform } = useTimeline();
 
   return (
     <div className="w-full h-full bg-background/95 backdrop-blur-sm p-6 flex flex-col gap-6">
-      <div className="flex items-center justify-between pb-4 border-b border-border/50">
-        <h2 className="text-lg font-semibold tracking-tight">{t('inspector')}</h2>
-        <Button variant="ghost" size="icon" onClick={resetTransform} title={t('reset_all')}>
-          <RotateCcw className="w-4 h-4" />
-        </Button>
+      <div className="flex items-center pb-4 border-b border-border/50">
+        <h2 className="text-lg font-semibold tracking-tight tabular-nums flex-1">{t('inspector')}</h2>
+        
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={resetTransform} title={t('reset_all')} className="rounded-full w-8 h-8">
+            <RotateCcw className="w-4 h-4" />
+          </Button>
+
+          {onClose && (
+            <Button variant="ghost" size="icon" onClick={onClose} title="Hide Inspector" className="rounded-full w-8 h-8 text-muted-foreground">
+              <ChevronRight className="w-5 h-5 shadow-sm" />
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="space-y-4">

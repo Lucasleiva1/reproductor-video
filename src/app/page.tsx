@@ -7,11 +7,11 @@ import ExportModal from "@/components/ui/ExportModal";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useTimeline, RESOLUTIONS } from "@/hooks/useTimeline";
 import { Button } from "@/components/ui/button";
-import { Upload, ChevronRight, ChevronLeft } from "lucide-react";
+import { Upload, ChevronRight, ChevronLeft, LayoutPanelLeft } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 export default function Home() {
   const [showInspector, setShowInspector] = useState(true);
@@ -97,27 +97,33 @@ export default function Home() {
           <motion.div
              initial={false}
              animate={{ width: showInspector ? 400 : 0 }}
-             className="shrink-0 h-full overflow-hidden bg-muted/10 border-l border-border"
+             className="shrink-0 h-full overflow-hidden bg-muted/10 border-l border-border relative flex"
           >
-             <div className="w-[400px] h-full overflow-y-auto">
-               <Inspector />
+             <div className="w-[400px] h-full overflow-y-auto shrink-0">
+               <Inspector onClose={() => setShowInspector(false)} />
              </div>
           </motion.div>
 
-          <motion.div
-             initial={false}
-             animate={{ right: showInspector ? 384 : 16 }}
-             className="absolute top-4 z-50 flex"
-          >
-             <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setShowInspector(!showInspector)}
-                className="w-8 h-8 rounded-full border-border shadow-md bg-background flex items-center justify-center text-foreground hover:bg-muted"
-             >
-                {showInspector ? <ChevronRight className="w-4 h-4 ml-[2px]" /> : <ChevronLeft className="w-4 h-4 mr-[2px]" />}
-             </Button>
-          </motion.div>
+          <AnimatePresence>
+            {!showInspector && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                className="absolute top-4 right-4 z-50"
+              >
+                 <Button
+                    variant="secondary"
+                    size="icon"
+                    onClick={() => setShowInspector(true)}
+                    className="w-10 h-10 rounded-full shadow-lg border border-border"
+                    title={t('inspector')}
+                 >
+                    <LayoutPanelLeft className="w-5 h-5" />
+                 </Button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </main>
     </div>
