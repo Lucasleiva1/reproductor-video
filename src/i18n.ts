@@ -64,6 +64,8 @@ i18n
           shortcut_frame_forward: "Frame Forward",
           shortcut_zoom_in: "Zoom Canvas In",
           shortcut_zoom_out: "Zoom Canvas Out",
+          shortcut_undo: "Undo",
+          shortcut_redo: "Redo",
           keyboard_shortcuts: "Keyboard Shortcuts",
         }
       },
@@ -116,6 +118,8 @@ i18n
           shortcut_frame_forward: "Avanzar Fotograma",
           shortcut_zoom_in: "Acercar Canvas",
           shortcut_zoom_out: "Alejar Canvas",
+          shortcut_undo: "Deshacer",
+          shortcut_redo: "Rehacer",
           keyboard_shortcuts: "Atajos de Teclado",
         }
       },
@@ -168,6 +172,8 @@ i18n
           shortcut_frame_forward: "Avançar Quadro",
           shortcut_zoom_in: "Aumentar Zoom Canvas",
           shortcut_zoom_out: "Diminuir Zoom Canvas",
+          shortcut_undo: "Desfazer",
+          shortcut_redo: "Refazer",
           keyboard_shortcuts: "Atalhos de Teclado",
         }
       }

@@ -140,6 +140,10 @@ export default function Home() {
                   <span>{t('shortcut_zoom_in')}</span>
                   <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">-</kbd>
                   <span>{t('shortcut_zoom_out')}</span>
+                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl+Z</kbd>
+                  <span>{t('shortcut_undo')}</span>
+                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl+Shift+Z</kbd>
+                  <span>{t('shortcut_redo')}</span>
                 </div>
               </TooltipContent>
             </Tooltip>
