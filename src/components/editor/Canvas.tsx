@@ -71,6 +71,24 @@ export default function Canvas() {
 
   // Controls visibility: show on hover OR in fullscreen when not idle
   const showControls = isFullscreen ? !fsIdle : isHovering;
+
+  // Auto-load sample video on first mount if no video is loaded
+  useEffect(() => {
+    if (videoUrl) return; // Already has a video
+    const loadSample = async () => {
+      try {
+        const res = await fetch('/v-1.mp4');
+        if (!res.ok) return;
+        const blob = await res.blob();
+        const file = new File([blob], 'v-1.mp4', { type: 'video/mp4' });
+        const url = URL.createObjectURL(file);
+        setVideoFile(file, url);
+      } catch {
+        // Sample not available, that's fine
+      }
+    };
+    loadSample();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   
   // Keep external scrubs synchronized
   useEffect(() => {

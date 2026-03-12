@@ -79,7 +79,8 @@ export const useTimeline = create<TimelineState>((set, get) => ({
     // If we just loaded a video and don't have clips, create the first main clip spanning the whole video.
     if (clips.length === 0 && videoUrl) {
       set({
-        duration,
+        // Add a 10s initial visual buffer so the clip doesn't occupy 100% of the screen width visually
+        duration: duration > 0 ? duration + 10 : 30,
         clips: [{
           id: generateId(),
           videoUrl,
@@ -102,8 +103,13 @@ export const useTimeline = create<TimelineState>((set, get) => ({
       const newClips = typeof updater === 'function' ? updater(state.clips) : updater;
       // Re-calculate total duration based on the furthest ending clip
       const maxEnd = newClips.reduce((max, clip) => Math.max(max, clip.startAt + (clip.trimEnd - clip.trimStart)), 0);
-      // Give a tiny buffer at the end of the timeline
-      return { clips: newClips, duration: maxEnd > 0 ? maxEnd : state.duration };
+      
+      // Prevent the timeline from shrinking dynamically during edits. 
+      // Only grow it, adding a nice 10s visual buffer at the end.
+      const neededDuration = maxEnd + 10;
+      const newDuration = Math.max(state.duration, neededDuration);
+      
+      return { clips: newClips, duration: newDuration };
     });
   },
 
