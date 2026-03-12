@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
+import { Clip, Resolution } from "@/hooks/useTimeline";
 
 export function useFFmpeg() {
   const [loaded, setLoaded] = useState(false);
@@ -43,100 +44,152 @@ export function useFFmpeg() {
 
   const renderVideo = async (
     videoFile: File,
-    startTime: number,
-    endTime: number,
-    zoomVal: number,
-    posXVal: number,
-    posYVal: number,
+    clips: Clip[], // Replaced startTime/endTime with clips array
+    zoom: number,
+    posX: number,
+    posY: number,
     format: "mp4" | "mp3" | "mp4-muted",
-    originalWidth: number,
-    originalHeight: number,
-    resolution: { w: number, h: number }
+    sourceWidth: number,
+    sourceHeight: number,
+    resolution: Resolution
   ) => {
+    if (!ffmpegRef.current) throw new Error("FFmpeg not loaded");
     const ffmpeg = ffmpegRef.current;
+
     const inputName = "input.mp4";
-    const ext = format.startsWith("mp4") ? "mp4" : format;
-    const outputName = `output.${ext}`;
-    
+    const finalOutputName = `output.${format.startsWith("mp4") ? "mp4" : "mp3"}`;
+
     await ffmpeg.writeFile(inputName, await fetchFile(videoFile));
 
-    // Calculate scaling to "contain" the video inside the target resolution (letterbox)
-    // This preserves aspect ratio and adds equal black bars when centered, like DaVinci Resolve
     const targetW = resolution.w;
     const targetH = resolution.h;
-    const scaleX = targetW / originalWidth;
-    const scaleY = targetH / originalHeight;
-    // Math.min = contain (fit inside, with letterbox bars if aspect ratios differ)
-    const baseScale = Math.min(scaleX, scaleY);
-    
-    // Zoom: 10 to 500 -> multiplier 0.1 to 5.0
-    const finalZoom = zoomVal / 100; 
-    
-    const finalW = originalWidth * baseScale * finalZoom;
-    const finalH = originalHeight * baseScale * finalZoom;
-    
-    // Ensure all dimensions are even (FFmpeg requirement for libx264)
-    const fw = Math.floor(finalW / 2) * 2;
-    const fh = Math.floor(finalH / 2) * 2;
-    const cw = Math.floor(targetW / 2) * 2;
-    const ch = Math.floor(targetH / 2) * 2;
-    
-    // Calculate overlay position on the black canvas.
-    // posX/posY range 0-100, where 50 = centered.
-    // When centered (50): videoX = (cw - fw) / 2 → equal bars on both sides.
-    // The offset is relative to the canvas size for intuitive panning.
-    const centerX = (cw - fw) / 2;
-    const centerY = (ch - fh) / 2;
-    const offsetX = ((posXVal - 50) / 50) * centerX;  // posX > 50 moves right
-    const offsetY = ((posYVal - 50) / 50) * centerY;  // posY > 50 moves down
-    const videoX = Math.round(centerX + offsetX);
-    const videoY = Math.round(centerY + offsetY);
-    
-    const dur = endTime - startTime;
 
-    // Apply trim params as inputs for much faster processing
-    let argList = [
-      "-ss", startTime.toFixed(3), 
-      "-t", dur.toFixed(3),
-      "-i", inputName
-    ];
+    // We calculate scaling just like before for the preview container
+    const isPortraitToLandscape = sourceHeight > sourceWidth && targetW > targetH;
+    const isLandscapeToPortrait = sourceWidth > sourceHeight && targetH > targetW;
+    const formatRequiresFill = isPortraitToLandscape || isLandscapeToPortrait;
+
+    const scaleBaseW = formatRequiresFill ? targetW / sourceWidth : targetW / sourceWidth;
+    const scaleBaseH = formatRequiresFill ? targetH / sourceHeight : targetH / sourceHeight;
+    const maxScale = Math.max(scaleBaseW, scaleBaseH);
+
+    const baseAspectScale = targetW / targetH;
+    const sourceAspectScale = sourceWidth / sourceHeight;
+    const aspectAdjustment = formatRequiresFill 
+      ? Math.max(baseAspectScale / sourceAspectScale, sourceAspectScale / baseAspectScale) 
+      : 1;
+
+    const exportScale = (zoom / 100) * aspectAdjustment;
+    const scaledInternalW = Math.round(sourceWidth * maxScale * exportScale);
+    const scaledInternalH = Math.round(sourceHeight * maxScale * exportScale);
+
+    const translateXPercent = ((posX - 50) * -1) / 100;
+    const translateYPercent = ((posY - 50) * -1) / 100;
     
-    if (format === "mp4" || format === "mp4-muted") {
-      // Create a black canvas, scale the video to fit (contain), and overlay centered.
-      // Overlay supports negative x/y naturally for panning/zooming.
-      const filterComplex = `color=c=black:s=${cw}x${ch}[bg];[0:v]scale=${fw}:${fh}[vid];[bg][vid]overlay=x=${videoX}:y=${videoY}:shortest=1[outv]`;
-      
-      argList.push(
-        "-filter_complex", filterComplex,
-        "-map", "[outv]"
-      );
+    let videoX = Math.round((targetW - scaledInternalW) / 2 + (targetW * translateXPercent));
+    let videoY = Math.round((targetH - scaledInternalH) / 2 + (targetH * translateYPercent));
 
-      if (format === "mp4") {
-        argList.push("-map", "0:a?", "-c:a", "aac"); // Include audio if present and re-encode
-      } else {
-        argList.push("-an"); // Strip audio explicitly
-      }
+    if (scaledInternalW % 2 !== 0) videoX += 1;
+    if (scaledInternalH % 2 !== 0) videoY += 1;
 
-      argList.push(
-        "-c:v", "libx264", 
-        "-preset", "ultrafast"
-      );
+    // Process each clip individually and store the partial output filenames
+    const segmentNames: string[] = [];
+    let currentTimelineTime = 0;
+
+    // Order clips by global timeline start time (startAt)
+    const sortedClips = [...clips].sort((a, b) => a.startAt - b.startAt);
+
+    for (let i = 0; i < sortedClips.length; i++) {
+        const clip = sortedClips[i];
+        
+        // Check for gap BEFORE this clip
+        if (clip.startAt > currentTimelineTime) {
+            const gapDuration = clip.startAt - currentTimelineTime;
+            const gapName = `gap_${i}.mp4`;
+            segmentNames.push(gapName);
+            
+            console.log(`Generating black gap segment: ${gapDuration}s`);
+            // Generate a black segment with silent audio for the gap
+            await ffmpeg.exec([
+                "-f", "lavfi", "-i", `color=c=black:s=${targetW}x${targetH}:r=30`,
+                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+                "-t", gapDuration.toString(),
+                "-c:v", "libx264", "-preset", "ultrafast",
+                "-c:a", "aac",
+                gapName
+            ]);
+        }
+
+        const clipDuration = clip.trimEnd - clip.trimStart;
+        const segmentName = `segment_${i}.mp4`;
+        segmentNames.push(segmentName);
+
+        const args = [
+            "-ss", clip.trimStart.toString(),
+            "-i", inputName,
+            "-t", clipDuration.toString(),
+        ];
+
+        if (format === "mp3") {
+            args.push(
+                "-vn",
+                "-acodec", "libmp3lame",
+                "-q:a", "2"
+            );
+        } else {
+            args.push(
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-filter_complex", `[0:v]scale=${scaledInternalW}:${scaledInternalH}[scaled];[scaled]pad=${targetW}:${targetH}:${videoX}:${videoY}:black[out]`,
+                "-map", "[out]",
+                "-map", "0:a?"
+            );
+            if (format === "mp4-muted") {
+                args.push("-an");
+            } else {
+                args.push("-c:a", "aac", "-b:a", "128k");
+            }
+        }
+        
+        args.push(segmentName);
+        console.log(`Rendering segment ${i}`, args);
+        await ffmpeg.exec(args);
+
+        currentTimelineTime = clip.startAt + clipDuration;
+    }
+
+    if (segmentNames.length === 0) throw new Error("No clips to export");
+
+    if (format === "mp3") {
+        // If it's just audio, concat the mp3 files
+        const concatTxtName = "concat.txt";
+        const concatText = segmentNames.map(f => `file '${f}'`).join("\n");
+        await ffmpeg.writeFile(concatTxtName, concatText);
+        
+        await ffmpeg.exec([
+            "-f", "concat",
+            "-safe", "0",
+            "-i", concatTxtName,
+            "-c", "copy",
+            finalOutputName
+        ]);
     } else {
-      // Audio only for mp3
-      argList.push("-vn", "-c:a", "libmp3lame");
+        // Concat the video segments
+        const concatTxtName = "concat.txt";
+        const concatText = segmentNames.map(f => `file '${f}'`).join("\n");
+        await ffmpeg.writeFile(concatTxtName, concatText);
+        
+        await ffmpeg.exec([
+            "-f", "concat",
+            "-safe", "0",
+            "-i", concatTxtName,
+            "-c", "copy",
+            finalOutputName
+        ]);
     }
-    
-    argList.push(outputName);
-    
-    setProgress(0);
-    const code = await ffmpeg.exec(argList);
-    
-    if (code !== 0) {
-      throw new Error(`FFmpeg execution failed with error code: ${code}`);
-    }
-    
-    const data = await ffmpeg.readFile(outputName);
-    const blob = new Blob([data as any], { type: format.startsWith("mp4") ? "video/mp4" : "audio/mpeg" });
+
+    const data = await ffmpeg.readFile(finalOutputName);
+    const blob = new Blob([data], { type: format === "mp3" ? "audio/mpeg" : "video/mp4" });
     const url = URL.createObjectURL(blob);
     
     // Provide blob URL

@@ -12,7 +12,7 @@ const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
 
 export default function Canvas() {
   const { t } = useTranslation();
-  const { videoUrl, zoom, posX, posY, playing, setPlaying, currentTime, setCurrentTime, setDuration, duration, setVideoFile, resolution, canvasScale, setCanvasScale } = useTimeline();
+  const { videoUrl, clips, zoom, posX, posY, playing, setPlaying, currentTime, setCurrentTime, setDuration, duration, setVideoFile, resolution, canvasScale, setCanvasScale } = useTimeline();
   const playerRef = useRef<any>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [isHovering, setIsHovering] = useState(false);
@@ -74,10 +74,57 @@ export default function Canvas() {
   
   // Keep external scrubs synchronized
   useEffect(() => {
-    if (playerRef.current && Math.abs(playerRef.current.getCurrentTime() - currentTime) > 0.5) {
-      playerRef.current.seekTo(currentTime, "seconds");
+    if (!playerRef.current || clips.length === 0) return;
+
+    // Find if the global `currentTime` falls within any clip's timeline block
+    const activeClip = clips.find(c => 
+      currentTime >= c.startAt && 
+      currentTime < c.startAt + (c.trimEnd - c.trimStart)
+    );
+
+    if (activeClip) {
+      // We are inside a clip. Calculate local time in the source video
+      const localTime = activeClip.trimStart + (currentTime - activeClip.startAt);
+      
+      if (Math.abs(playerRef.current.getCurrentTime() - localTime) > 0.5) {
+        playerRef.current.seekTo(localTime, "seconds");
+      }
+      
+      // Ensure we are playing if we should be
+      if (playing && !playerRef.current.getInternalPlayer()?.paused === false) {
+         // Some players need a forced play here if they paused at end of a previous clip
+      }
+    } else {
+      // We are in a gap between clips, or past the end
+      if (playing) {
+         setPlaying(false);
+      }
     }
-  }, [currentTime]);
+  }, [currentTime, clips, playing, setPlaying]);
+
+  const handleProgress = useCallback((state: any) => {
+    if (!playing || clips.length === 0) return;
+    
+    // Reverse lookup: Given the ReactPlayer's local source time, what is the global timeline time?
+    // We assume the active clip is the one whose local time closely matches state.playedSeconds
+    // and who is currently active. But we don't have activeClip purely in state easily here since it's driven by currentTime.
+    
+    // Instead of overriding currentTime with raw playedSeconds, we do an offset:
+    const activeClip = clips.find(c => 
+      currentTime >= c.startAt && 
+      currentTime < c.startAt + (c.trimEnd - c.trimStart)
+    );
+
+    if (activeClip) {
+      const globalTimeFromSource = activeClip.startAt + (state.playedSeconds - activeClip.trimStart);
+      // Only set it if it's logically forward and not wildly off (due to seeking lag)
+      if (Math.abs(globalTimeFromSource - currentTime) < 0.5) {
+         setCurrentTime(globalTimeFromSource);
+      } else {
+         setCurrentTime(currentTime + 0.1); // Fallback tick
+      }
+    }
+  }, [playing, clips, currentTime, setCurrentTime]);
 
   const scale = zoom / 100;
   const translateX = (posX - 50) * -1;
@@ -192,9 +239,7 @@ export default function Canvas() {
                   onPlay={() => setPlaying(true)}
                   onPause={() => setPlaying(false)}
                   onDuration={(d: number) => setDuration(d)}
-                  onProgress={(state: any) => {
-                    if (playing) setCurrentTime(state.playedSeconds);
-                  }}
+                  onProgress={handleProgress}
                   progressInterval={100}
                   style={{ objectFit: isFixedMode ? 'contain' : 'contain' }}
                 />

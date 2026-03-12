@@ -13,7 +13,7 @@ import { useTranslation } from "react-i18next";
 
 export default function ExportModal() {
   const { t } = useTranslation();
-  const { videoFile, startTime, endTime, zoom, posX, posY, resolution } = useTimeline();
+  const { videoFile, clips, zoom, posX, posY, resolution } = useTimeline();
   const { loaded, loading, progress, renderVideo } = useFFmpeg();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -51,8 +51,7 @@ export default function ExportModal() {
     try {
       const url = await renderVideo(
         videoFile,
-        startTime,
-        endTime,
+        clips,
         zoom,
         posX,
         posY,
@@ -124,7 +123,9 @@ export default function ExportModal() {
         disabled={!videoFile || loading}
         className="font-semibold shadow-lg transition-transform hover:scale-105 active:scale-95 bg-blue-600 hover:bg-blue-700 text-white"
       >
-        {loading ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : <DownloadCloud className="w-4 h-4 mr-2" />}
+        <span className="w-4 h-4 mr-2 inline-flex items-center justify-center">
+          {loading ? <Loader2 className="animate-spin w-4 h-4" /> : <DownloadCloud className="w-4 h-4" />}
+        </span>
         {t('quick_export')}
       </Button>
 
@@ -162,10 +163,7 @@ export default function ExportModal() {
                 
                 <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground bg-muted p-4 rounded-md">
                    <div>
-                     <span className="block font-semibold">{t('start')}:</span> {startTime.toFixed(2)}s
-                   </div>
-                   <div>
-                     <span className="block font-semibold">{t('end')}:</span> {endTime.toFixed(2)}s
+                     <span className="block font-semibold">Clips:</span> {clips.length}
                    </div>
                    <div>
                      <span className="block font-semibold">{t('resolution')}:</span> {resolution.name}
