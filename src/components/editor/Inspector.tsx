@@ -169,7 +169,7 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
               exit={{ opacity: 0, x: 10, scale: 0.95 }}
               transition={{ type: "spring", bounce: 0.15, duration: 0.3 }}
               className="fixed z-[9999] w-76 bg-background border border-border rounded-xl shadow-2xl shadow-black/40 overflow-hidden"
-              style={{ top: popoverPos.top, left: popoverPos.left, width: 304, backdropFilter: 'blur(20px)', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto' }}
+              style={{ top: popoverPos.top, left: popoverPos.left, width: 304, backdropFilter: 'blur(20px)', maxHeight: `calc(100vh - ${popoverPos.top + 16}px)`, overflowY: 'auto' }}
             >
               {/* Header */}
               <div className="px-4 py-3 border-b border-border/50 bg-muted/30 sticky top-0 z-10">
@@ -179,7 +179,7 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
                 </div>
               </div>
 
-              <div className="p-4 space-y-5">
+              <div className="p-4 pb-8 space-y-5">
                 {/* Default Mode */}
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
