@@ -90,10 +90,7 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
         <Slider value={[posY]} min={0} max={100} onValueChange={(val) => setPosY(Array.isArray(val) ? val[0] : val as number)} />
       </div>
 
-      <div className="text-xs text-muted-foreground bg-muted p-3 rounded-md mt-auto leading-relaxed">
-        <p><strong>Note:</strong> {t('inspector_note')}</p>
-        <p className="mt-2">{t('inspector_note_render')}</p>
-      </div>
+
     </div>
   );
 }
