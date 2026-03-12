@@ -126,19 +126,22 @@
   html {
     @apply font-sans;
   }
+}
 
-  /* Custom Scrollbar */
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 8px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    @apply bg-zinc-800/80 rounded-full;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-zinc-700;
-  }
+/* Custom Scrollbar - Global Override */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track {
+  background: #18181b; /* Default track slightly darker */
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #52525b; /* zinc-600 */
+  border-radius: 8px;
+  border: 3px solid #18181b; /* Creates the padded look */
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #71717a; /* zinc-500 */
 }
