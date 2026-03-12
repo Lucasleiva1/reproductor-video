@@ -22,16 +22,13 @@ export default function ExportModal() {
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const lastFileNameRef = useRef<string>("");
 
-  // Generate random filename: 3 letters + 5 digits, never repeats previous
+  // Generate random filename: 20 digits, never repeats previous
   const generateFileName = () => {
-    const letters = 'abcdefghijklmnopqrstuvwxyz';
     let name = '';
     do {
-      let chars = '';
-      for (let i = 0; i < 3; i++) chars += letters[Math.floor(Math.random() * 26)];
       let nums = '';
-      for (let i = 0; i < 5; i++) nums += Math.floor(Math.random() * 10).toString();
-      name = chars + nums;
+      for (let i = 0; i < 20; i++) nums += Math.floor(Math.random() * 10).toString();
+      name = nums;
     } while (name === lastFileNameRef.current);
     lastFileNameRef.current = name;
     return name;
