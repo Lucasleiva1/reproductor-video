@@ -75,6 +75,9 @@ i18n
           theme_dark: "Dark",
           theme_light: "Light",
           theme_system: "System",
+          language: "Language",
+          show_in_header: "Show in Header",
+          header_elements: "Header Elements",
         }
       },
       es: {
@@ -137,6 +140,9 @@ i18n
           theme_dark: "Oscuro",
           theme_light: "Claro",
           theme_system: "Sistema",
+          language: "Idioma",
+          show_in_header: "Mostrar en Header",
+          header_elements: "Elementos del Header",
         }
       },
       pt: {
@@ -199,6 +205,9 @@ i18n
           theme_dark: "Escuro",
           theme_light: "Claro",
           theme_system: "Sistema",
+          language: "Idioma",
+          show_in_header: "Mostrar no Header",
+          header_elements: "Elementos do Header",
         }
       }
     }

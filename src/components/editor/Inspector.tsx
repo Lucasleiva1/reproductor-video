@@ -1,10 +1,11 @@
 "use client";
 
-import { useTimeline } from "@/hooks/useTimeline";
+import { useTimeline, RESOLUTIONS } from "@/hooks/useTimeline";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import { RotateCcw, ChevronRight, Settings, MonitorPlay, Clapperboard, Sun, Moon, Monitor } from "lucide-react";
+import { RotateCcw, ChevronRight, Settings, MonitorPlay, Clapperboard, Sun, Moon, Monitor, Eye, EyeOff, Globe, Ratio, Keyboard, Palette } from "lucide-react";
 import React, { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "next-themes";
 import { motion, AnimatePresence } from "framer-motion";
@@ -45,13 +46,48 @@ const ScrubbableNumber = ({ value, onChange, min, max, step = 1, format = (v: nu
   );
 };
 
+// Toggle switch component
+const ToggleSwitch = ({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) => (
+  <button
+    onClick={() => onChange(!checked)}
+    className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${checked ? 'bg-indigo-500' : 'bg-zinc-600'}`}
+  >
+    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200 ${checked ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+  </button>
+);
+
 export default function Inspector({ onClose }: { onClose?: () => void }) {
-  const { t } = useTranslation();
-  const { zoom, posX, posY, setZoom, setPosX, setPosY, resetTransform, isPlayerMode, setPlayerMode } = useTimeline();
+  const { t, i18n } = useTranslation();
+  const { 
+    zoom, posX, posY, setZoom, setPosX, setPosY, resetTransform, 
+    isPlayerMode, setPlayerMode,
+    resolution, setResolution,
+    headerShowLang, headerShowRes, headerShowShortcuts, headerShowTheme,
+    setHeaderShowLang, setHeaderShowRes, setHeaderShowShortcuts, setHeaderShowTheme,
+  } = useTimeline();
   const { theme, setTheme } = useTheme();
   const [showSettings, setShowSettings] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const [popoverPos, setPopoverPos] = useState({ top: 0, left: 0 });
+
+  // Calculate popover position when opening
+  useEffect(() => {
+    if (showSettings && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      // Position to the left, and clamp so it doesn't go above the viewport
+      const popoverHeight = 620; // approximate
+      let top = rect.top;
+      if (top + popoverHeight > window.innerHeight) {
+        top = window.innerHeight - popoverHeight - 16;
+      }
+      top = Math.max(8, top);
+      setPopoverPos({
+        top,
+        left: rect.left - 304 - 12, // 304 = w-76, 12 = gap
+      });
+    }
+  }, [showSettings]);
 
   // Close popover when clicking outside
   useEffect(() => {
@@ -76,7 +112,6 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
 
   const setDefaultMode = (mode: 'editor' | 'player') => {
     localStorage.setItem('defaultMode', mode);
-    // Also apply the mode immediately
     setPlayerMode(mode === 'player');
   };
 
@@ -86,6 +121,12 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
     setDefaultModeState(mode);
     setDefaultMode(mode);
   };
+
+  const languages = [
+    { code: 'es', label: 'Español' },
+    { code: 'en', label: 'English' },
+    { code: 'pt', label: 'Português' },
+  ];
 
   return (
     <div className="w-full h-full bg-background/95 backdrop-blur-sm p-6 flex flex-col gap-6">
@@ -115,21 +156,23 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
             </Button>
           )}
         </div>
+      </div>
 
-        {/* Floating Settings Popover */}
+      {/* Floating Settings Popover via Portal */}
+      {typeof document !== 'undefined' && createPortal(
         <AnimatePresence>
           {showSettings && (
             <motion.div
               ref={popoverRef}
-              initial={{ opacity: 0, y: -8, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.95 }}
+              initial={{ opacity: 0, x: 10, scale: 0.95 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 10, scale: 0.95 }}
               transition={{ type: "spring", bounce: 0.15, duration: 0.3 }}
-              className="absolute top-full right-0 mt-2 z-[100] w-72 bg-background border border-border rounded-xl shadow-2xl shadow-black/40 overflow-hidden"
-              style={{ backdropFilter: 'blur(20px)' }}
+              className="fixed z-[9999] w-76 bg-background border border-border rounded-xl shadow-2xl shadow-black/40 overflow-hidden"
+              style={{ top: popoverPos.top, left: popoverPos.left, width: 304, backdropFilter: 'blur(20px)', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto' }}
             >
               {/* Header */}
-              <div className="px-4 py-3 border-b border-border/50 bg-muted/30">
+              <div className="px-4 py-3 border-b border-border/50 bg-muted/30 sticky top-0 z-10">
                 <div className="flex items-center gap-2">
                   <Settings className="w-3.5 h-3.5 text-muted-foreground" />
                   <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{t('settings')}</span>
@@ -138,84 +181,146 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
 
               <div className="p-4 space-y-5">
                 {/* Default Mode */}
-                <div className="space-y-2.5">
-                  <span className="text-sm font-medium text-foreground">{t('default_mode')}</span>
-                  <p className="text-[11px] text-muted-foreground leading-tight">
-                    Al abrir el programa o un video, se iniciará en este modo.
-                  </p>
-                  <div className="grid grid-cols-2 gap-2 mt-2">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Clapperboard className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">{t('default_mode')}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       onClick={() => handleSetDefaultMode('editor')}
-                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-all ${
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
                         defaultMode === 'editor'
-                          ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-400 shadow-sm shadow-indigo-500/10'
+                          ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-400'
                           : 'bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                       }`}
                     >
-                      <Clapperboard className="w-4 h-4 shrink-0" />
+                      <Clapperboard className="w-3.5 h-3.5 shrink-0" />
                       {t('editor_mode')}
                     </button>
                     <button
                       onClick={() => handleSetDefaultMode('player')}
-                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-all ${
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
                         defaultMode === 'player'
-                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-sm shadow-emerald-500/10'
+                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
                           : 'bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                       }`}
                     >
-                      <MonitorPlay className="w-4 h-4 shrink-0" />
+                      <MonitorPlay className="w-3.5 h-3.5 shrink-0" />
                       {t('player_mode')}
                     </button>
                   </div>
                 </div>
 
-                {/* Divider */}
                 <div className="border-t border-border/50" />
 
                 {/* Theme */}
-                <div className="space-y-2.5">
-                  <span className="text-sm font-medium text-foreground">{t('theme')}</span>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Palette className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">{t('theme')}</span>
+                  </div>
                   <div className="grid grid-cols-3 gap-2">
-                    <button
-                      onClick={() => setTheme('dark')}
-                      className={`flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-lg border text-[11px] font-medium transition-all ${
-                        theme === 'dark'
-                          ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-400 shadow-sm shadow-indigo-500/10'
-                          : 'bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-                      }`}
-                    >
-                      <Moon className="w-4 h-4" />
-                      {t('theme_dark')}
-                    </button>
-                    <button
-                      onClick={() => setTheme('light')}
-                      className={`flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-lg border text-[11px] font-medium transition-all ${
-                        theme === 'light'
-                          ? 'bg-amber-500/15 border-amber-500/40 text-amber-400 shadow-sm shadow-amber-500/10'
-                          : 'bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-                      }`}
-                    >
-                      <Sun className="w-4 h-4" />
-                      {t('theme_light')}
-                    </button>
-                    <button
-                      onClick={() => setTheme('system')}
-                      className={`flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-lg border text-[11px] font-medium transition-all ${
-                        theme === 'system'
-                          ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-400 shadow-sm shadow-cyan-500/10'
-                          : 'bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-                      }`}
-                    >
-                      <Monitor className="w-4 h-4" />
-                      {t('theme_system')}
-                    </button>
+                    {[
+                      { key: 'dark', icon: Moon, label: t('theme_dark'), active: 'bg-indigo-500/15 border-indigo-500/40 text-indigo-400' },
+                      { key: 'light', icon: Sun, label: t('theme_light'), active: 'bg-amber-500/15 border-amber-500/40 text-amber-400' },
+                      { key: 'system', icon: Monitor, label: t('theme_system'), active: 'bg-cyan-500/15 border-cyan-500/40 text-cyan-400' },
+                    ].map(({ key, icon: Icon, label, active }) => (
+                      <button
+                        key={key}
+                        onClick={() => setTheme(key)}
+                        className={`flex flex-col items-center gap-1 px-2 py-2 rounded-lg border text-[11px] font-medium transition-all ${
+                          theme === key ? active : 'bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                        }`}
+                      >
+                        <Icon className="w-3.5 h-3.5" />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-border/50" />
+
+                {/* Language */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">{t('language')}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {languages.map(lang => (
+                      <button
+                        key={lang.code}
+                        onClick={() => i18n.changeLanguage(lang.code)}
+                        className={`px-2 py-2 rounded-lg border text-[11px] font-medium transition-all text-center ${
+                          i18n.resolvedLanguage === lang.code
+                            ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-400'
+                            : 'bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                        }`}
+                      >
+                        {lang.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-border/50" />
+
+                {/* Resolution */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Ratio className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">{t('resolution')}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {RESOLUTIONS.map(res => (
+                      <button
+                        key={res.name}
+                        onClick={() => setResolution(res)}
+                        className={`px-2 py-1.5 rounded-lg border text-[10px] font-medium transition-all text-center leading-tight ${
+                          resolution.name === res.name
+                            ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-400'
+                            : 'bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                        }`}
+                      >
+                        {res.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-border/50" />
+
+                {/* Header Elements Visibility */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">{t('header_elements')}</span>
+                  </div>
+                  <div className="space-y-2.5">
+                    {[
+                      { label: t('resolution'), checked: headerShowRes, onChange: setHeaderShowRes, icon: Ratio },
+                      { label: t('theme'), checked: headerShowTheme, onChange: setHeaderShowTheme, icon: Palette },
+                      { label: t('keyboard_shortcuts'), checked: headerShowShortcuts, onChange: setHeaderShowShortcuts, icon: Keyboard },
+                      { label: t('language'), checked: headerShowLang, onChange: setHeaderShowLang, icon: Globe },
+                    ].map(({ label, checked, onChange, icon: Icon }) => (
+                      <div key={label} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+                          <span className="text-xs text-foreground">{label}</span>
+                        </div>
+                        <ToggleSwitch checked={checked} onChange={onChange} />
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
             </motion.div>
           )}
-        </AnimatePresence>
-      </div>
+        </AnimatePresence>,
+        document.body
+      )}
 
       <div className="space-y-4">
         <div className="flex items-center justify-between">

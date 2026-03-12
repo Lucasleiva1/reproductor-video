@@ -17,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 export default function Home() {
   const [showInspector, setShowInspector] = useState(true);
   const { t, i18n } = useTranslation();
-  const { setVideoFile, resolution, setResolution, currentTime, duration, playing, setPlaying, setCurrentTime, canvasScale, setCanvasScale, isPlayerMode } = useTimeline();
+  const { setVideoFile, resolution, setResolution, currentTime, duration, playing, setPlaying, setCurrentTime, canvasScale, setCanvasScale, isPlayerMode, headerShowLang, headerShowRes, headerShowShortcuts, headerShowTheme } = useTimeline();
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -102,6 +102,7 @@ export default function Home() {
             </Button>
           </div>
           
+          {headerShowRes && (
           <Select 
             value={resolution.name} 
             onValueChange={(val) => setResolution(RESOLUTIONS.find(r => r.name === val)!)}
@@ -115,10 +116,12 @@ export default function Home() {
               ))}
             </SelectContent>
           </Select>
+          )}
 
-          <ThemeToggle />
+          {headerShowTheme && <ThemeToggle />}
 
           {/* Keyboard Shortcuts Tooltip */}
+          {headerShowShortcuts && (
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger className="inline-flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
@@ -157,9 +160,11 @@ export default function Home() {
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
+          )}
 
           <ExportModal />
           
+          {headerShowLang && (
           <Select value={i18n.resolvedLanguage || 'es'} onValueChange={(val) => i18n.changeLanguage(val as string)}>
             <SelectTrigger className="w-[60px] bg-muted/50 border-border h-9 text-xs font-semibold focus:ring-0 uppercase">
               {i18n.resolvedLanguage ? i18n.resolvedLanguage.toUpperCase() : 'ES'}
@@ -170,6 +175,7 @@ export default function Home() {
               <SelectItem value="pt" className="text-xs">Português</SelectItem>
             </SelectContent>
           </Select>
+          )}
         </div>
       </header>
       )}

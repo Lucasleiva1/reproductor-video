@@ -55,6 +55,16 @@ interface TimelineState {
   resetTransform: () => void;
   isPlayerMode: boolean;
   setPlayerMode: (mode: boolean) => void;
+
+  // Header visibility toggles
+  headerShowLang: boolean;
+  headerShowRes: boolean;
+  headerShowShortcuts: boolean;
+  headerShowTheme: boolean;
+  setHeaderShowLang: (v: boolean) => void;
+  setHeaderShowRes: (v: boolean) => void;
+  setHeaderShowShortcuts: (v: boolean) => void;
+  setHeaderShowTheme: (v: boolean) => void;
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -64,6 +74,17 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   setPlayerMode: (mode) => {
     set({ isPlayerMode: mode });
   },
+
+  // Header visibility (default all true)
+  headerShowLang: typeof window !== 'undefined' ? localStorage.getItem('headerShowLang') !== 'false' : true,
+  headerShowRes: typeof window !== 'undefined' ? localStorage.getItem('headerShowRes') !== 'false' : true,
+  headerShowShortcuts: typeof window !== 'undefined' ? localStorage.getItem('headerShowShortcuts') !== 'false' : true,
+  headerShowTheme: typeof window !== 'undefined' ? localStorage.getItem('headerShowTheme') !== 'false' : true,
+  setHeaderShowLang: (v) => { if (typeof window !== 'undefined') localStorage.setItem('headerShowLang', String(v)); set({ headerShowLang: v }); },
+  setHeaderShowRes: (v) => { if (typeof window !== 'undefined') localStorage.setItem('headerShowRes', String(v)); set({ headerShowRes: v }); },
+  setHeaderShowShortcuts: (v) => { if (typeof window !== 'undefined') localStorage.setItem('headerShowShortcuts', String(v)); set({ headerShowShortcuts: v }); },
+  setHeaderShowTheme: (v) => { if (typeof window !== 'undefined') localStorage.setItem('headerShowTheme', String(v)); set({ headerShowTheme: v }); },
+
   videoFile: null,
   videoUrl: null,
   duration: 0,
