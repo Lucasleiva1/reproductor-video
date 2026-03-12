@@ -3,7 +3,7 @@
 import { useTimeline, Clip } from "@/hooks/useTimeline";
 import { Slider } from "@/components/ui/slider";
 import { motion } from "framer-motion";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { FaPlay, FaPause } from "react-icons/fa";
 import { Trash2, Magnet } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -65,6 +65,26 @@ export default function Timeline() {
     initialDuration: 0, initialTrackWidth: 1,
   });
 
+  // --- Keyboard Shortcuts (Undo/Redo) ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          useTimeline.getState().redo();
+        } else {
+          useTimeline.getState().undo();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // --- Helpers ---
   const getPxPerSec = useCallback(() => {
     if (duration <= 0 || !trackRef.current) return 1;
@@ -114,6 +134,9 @@ export default function Timeline() {
     e.stopPropagation();
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
+
+    // Save history before modifying
+    useTimeline.getState().saveHistory();
 
     const clip = clips.find(c => c.id === clipId);
     if (!clip) return;

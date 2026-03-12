@@ -31,6 +31,14 @@ interface TimelineState {
   posY: number; // 0 to 100 normalized, 50 is center
   playing: boolean;
   resolution: Resolution;
+
+  // History state
+  past: { clips: Clip[], duration: number }[];
+  future: { clips: Clip[], duration: number }[];
+  saveHistory: () => void;
+  undo: () => void;
+  redo: () => void;
+
   setVideoFile: (file: File | null, url: string | null) => void;
   setDuration: (duration: number) => void;
   setCurrentTime: (time: number) => void;
@@ -61,6 +69,47 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   posY: 50, // 50 = center
   playing: false,
   resolution: RESOLUTIONS[2],
+
+  past: [],
+  future: [],
+
+  saveHistory: () => {
+    set((state) => {
+      const newPast = [...state.past, { clips: state.clips, duration: state.duration }];
+      if (newPast.length > 50) newPast.shift(); // Keep max 50 steps
+      return { past: newPast, future: [] };
+    });
+  },
+
+  undo: () => {
+    set((state) => {
+      if (state.past.length === 0) return state;
+      const previous = state.past[state.past.length - 1];
+      const newPast = state.past.slice(0, -1);
+      const newFuture = [{ clips: state.clips, duration: state.duration }, ...state.future];
+      return { 
+        past: newPast, 
+        future: newFuture, 
+        clips: previous.clips, 
+        duration: previous.duration 
+      };
+    });
+  },
+
+  redo: () => {
+    set((state) => {
+      if (state.future.length === 0) return state;
+      const next = state.future[0];
+      const newFuture = state.future.slice(1);
+      const newPast = [...state.past, { clips: state.clips, duration: state.duration }];
+      return { 
+        past: newPast, 
+        future: newFuture, 
+        clips: next.clips, 
+        duration: next.duration 
+      };
+    });
+  },
 
   setVideoFile: (file, url) => {
     // When a new file is loaded, create an initial clip right at 0s.
@@ -119,9 +168,11 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   },
 
   splitClip: (id, splitTimeGlobal) => {
-    const { clips, setClips } = get();
+    const { clips, setClips, saveHistory } = get();
     const clipIndex = clips.findIndex(c => c.id === id);
     if (clipIndex === -1) return;
+
+    saveHistory();
 
     const clip = clips[clipIndex];
     // Global split time relative to the clip's local start Time
@@ -148,7 +199,8 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   },
 
   removeClip: (id) => {
-    const { clips, setClips } = get();
+    const { clips, setClips, saveHistory } = get();
+    saveHistory();
     setClips(clips.filter(c => c.id !== id));
   },
 
