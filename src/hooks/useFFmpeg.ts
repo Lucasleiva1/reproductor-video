@@ -115,6 +115,7 @@ export function useFFmpeg() {
                 "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
                 "-t", gapDuration.toString(),
                 "-c:v", "libx264", "-preset", "ultrafast",
+                "-pix_fmt", "yuv420p",
                 "-c:a", "aac",
                 gapName
             ]);
@@ -140,14 +141,14 @@ export function useFFmpeg() {
             args.push(
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
-                "-filter_complex", `[0:v]scale=${scaledInternalW}:${scaledInternalH}[scaled];[scaled]pad=${targetW}:${targetH}:${videoX}:${videoY}:black[out]`,
+                "-filter_complex", `color=c=black:s=${targetW}x${targetH}:r=30[bg];[0:v]scale=${scaledInternalW}:${scaledInternalH}[scaled];[bg][scaled]overlay=${videoX}:${videoY}:shortest=1,format=yuv420p[out]`,
                 "-map", "[out]",
                 "-map", "0:a?"
             );
             if (format === "mp4-muted") {
                 args.push("-an");
             } else {
-                args.push("-c:a", "aac", "-b:a", "128k");
+                args.push("-c:a", "aac", "-b:a", "128k", "-ar", "44100");
             }
         }
         
