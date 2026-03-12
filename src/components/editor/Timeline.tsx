@@ -396,8 +396,11 @@ export default function Timeline() {
       >
         <motion.div 
           ref={trackRef}
-          className="h-full relative flex items-center shrink-0 min-w-full origin-left"
-          animate={{ width: `${timelineZoom * 100}%` }}
+          className="h-full relative flex items-center shrink-0 origin-left"
+          animate={{ 
+            width: `calc(${timelineZoom * 100}% - 32px)`,
+            margin: '0 16px' 
+          }}
           transition={{ type: "spring", bounce: 0, duration: 0.4 }}
         >
           {/* Background Grid Lines */}
