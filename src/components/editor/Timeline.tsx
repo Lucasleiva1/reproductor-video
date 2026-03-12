@@ -590,7 +590,7 @@ export default function Timeline() {
       <div className="flex justify-between items-center text-zinc-600 text-[10px] uppercase font-bold tracking-widest">
         <span className="font-mono">00:00.0</span>
         <span className={snappingActive ? 'text-indigo-400' : 'text-zinc-600'}>
-          {trimmingSide ? `✏️ Trimming ${trimmingSide === 'left' ? 'Inicio' : 'Final'}` : snappingActive ? `⚡ Snapping Activo (${SNAP_THRESHOLD_PX}px)` : 'Snapping Off'}
+          {trimmingSide ? `✏️ Trimming ${trimmingSide === 'left' ? 'Inicio' : 'Final'}` : snappingActive ? `Snapping Activo (${SNAP_THRESHOLD_PX}px)` : 'Snapping Off'}
         </span>
         <span className="font-mono">{formatTime(duration)}</span>
       </div>
