@@ -123,26 +123,34 @@ export default function Home() {
               <TooltipTrigger className="inline-flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
                   <Keyboard className="w-4 h-4" />
               </TooltipTrigger>
-              <TooltipContent side="bottom" align="end" className="max-w-xs">
-                <p className="font-semibold mb-2">{t('keyboard_shortcuts')}</p>
-                <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
-                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Space</kbd>
+              <TooltipContent side="bottom" align="end" className="max-w-xs bg-background border border-border text-foreground shadow-lg">
+                <p className="font-semibold mb-3">{t('keyboard_shortcuts')}</p>
+                <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs text-muted-foreground items-center">
+                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">Space</kbd>
                   <span>{t('shortcut_play')}</span>
-                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">J</kbd>
+                  
+                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">J</kbd>
                   <span>{t('shortcut_back')}</span>
-                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">L</kbd>
+                  
+                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">L</kbd>
                   <span>{t('shortcut_forward')}</span>
-                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">←</kbd>
+                  
+                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">←</kbd>
                   <span>{t('shortcut_frame_back')}</span>
-                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">→</kbd>
+                  
+                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">→</kbd>
                   <span>{t('shortcut_frame_forward')}</span>
-                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">+</kbd>
+                  
+                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">+</kbd>
                   <span>{t('shortcut_zoom_in')}</span>
-                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">-</kbd>
+                  
+                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">-</kbd>
                   <span>{t('shortcut_zoom_out')}</span>
-                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl+Z</kbd>
+                  
+                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">Ctrl+Z</kbd>
                   <span>{t('shortcut_undo')}</span>
-                  <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl+Shift+Z</kbd>
+                  
+                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">Ctrl+Shift+Z</kbd>
                   <span>{t('shortcut_redo')}</span>
                 </div>
               </TooltipContent>
