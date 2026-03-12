@@ -60,8 +60,10 @@ interface TimelineState {
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 export const useTimeline = create<TimelineState>((set, get) => ({
-  isPlayerMode: false,
-  setPlayerMode: (mode) => set({ isPlayerMode: mode }),
+  isPlayerMode: typeof window !== 'undefined' ? (localStorage.getItem('defaultMode') === 'player') : false,
+  setPlayerMode: (mode) => {
+    set({ isPlayerMode: mode });
+  },
   videoFile: null,
   videoUrl: null,
   duration: 0,
