@@ -298,17 +298,17 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
                     <Eye className="w-3.5 h-3.5 text-muted-foreground" />
                     <span className="text-sm font-medium text-foreground">{t('header_elements')}</span>
                   </div>
-                  <div className="space-y-2.5">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                     {[
                       { label: t('resolution'), checked: headerShowRes, onChange: setHeaderShowRes, icon: Ratio },
                       { label: t('theme'), checked: headerShowTheme, onChange: setHeaderShowTheme, icon: Palette },
-                      { label: t('keyboard_shortcuts'), checked: headerShowShortcuts, onChange: setHeaderShowShortcuts, icon: Keyboard },
+                      { label: t('shortcuts'), checked: headerShowShortcuts, onChange: setHeaderShowShortcuts, icon: Keyboard },
                       { label: t('language'), checked: headerShowLang, onChange: setHeaderShowLang, icon: Globe },
                     ].map(({ label, checked, onChange, icon: Icon }) => (
-                      <div key={label} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-                          <span className="text-xs text-foreground">{label}</span>
+                      <div key={label} className="flex flex-col gap-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <Icon className="w-3 h-3 text-muted-foreground" />
+                          <span className="text-[11px] text-foreground truncate">{label}</span>
                         </div>
                         <ToggleSwitch checked={checked} onChange={onChange} />
                       </div>
