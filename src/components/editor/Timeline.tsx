@@ -388,7 +388,7 @@ export default function Timeline() {
       {/* Timeline Rail */}
       <div 
         ref={scrollContainerRef}
-        className={`flex-1 overflow-x-auto overflow-y-hidden custom-scrollbar pb-2 relative rounded-xl border border-zinc-800/50 bg-zinc-900/30 ${bladeMode ? 'cursor-crosshair' : ''}`}
+        className={`flex-1 overflow-x-scroll overflow-y-hidden custom-scrollbar pb-2 relative rounded-xl border border-zinc-800/50 bg-zinc-900/30 ${bladeMode ? 'cursor-crosshair' : ''}`}
         style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.3) inset' }}
         onPointerDown={onPanStart} onPointerMove={onPanMove} onPointerUp={onPanEnd}
         onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
