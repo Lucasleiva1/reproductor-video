@@ -78,6 +78,7 @@ i18n
           language: "Language",
           show_in_header: "Show in Header",
           header_elements: "Header Elements",
+          tutorial: "Tutorial",
         }
       },
       es: {
@@ -143,6 +144,7 @@ i18n
           language: "Idioma",
           show_in_header: "Mostrar en Header",
           header_elements: "Elementos del Header",
+          tutorial: "Tutorial",
         }
       },
       pt: {
@@ -208,6 +210,7 @@ i18n
           language: "Idioma",
           show_in_header: "Mostrar no Header",
           header_elements: "Elementos do Header",
+          tutorial: "Tutorial",
         }
       }
     }

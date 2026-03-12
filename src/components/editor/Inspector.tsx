@@ -3,7 +3,7 @@
 import { useTimeline, RESOLUTIONS } from "@/hooks/useTimeline";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import { RotateCcw, ChevronRight, Settings, MonitorPlay, Clapperboard, Sun, Moon, Monitor, Eye, EyeOff, Globe, Ratio, Keyboard, Palette } from "lucide-react";
+import { RotateCcw, ChevronRight, Settings, MonitorPlay, Clapperboard, Sun, Moon, Monitor, Eye, EyeOff, Globe, Ratio, Keyboard, Palette, BookOpen } from "lucide-react";
 import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -62,8 +62,8 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
     zoom, posX, posY, setZoom, setPosX, setPosY, resetTransform, 
     isPlayerMode, setPlayerMode,
     resolution, setResolution,
-    headerShowLang, headerShowRes, headerShowShortcuts, headerShowTheme,
-    setHeaderShowLang, setHeaderShowRes, setHeaderShowShortcuts, setHeaderShowTheme,
+    headerShowLang, headerShowRes, headerShowShortcuts, headerShowTheme, headerShowTutorial,
+    setHeaderShowLang, setHeaderShowRes, setHeaderShowShortcuts, setHeaderShowTheme, setHeaderShowTutorial,
   } = useTimeline();
   const { theme, setTheme } = useTheme();
   const [showSettings, setShowSettings] = useState(false);
@@ -304,6 +304,7 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
                       { label: t('theme'), checked: headerShowTheme, onChange: setHeaderShowTheme, icon: Palette },
                       { label: t('shortcuts'), checked: headerShowShortcuts, onChange: setHeaderShowShortcuts, icon: Keyboard },
                       { label: t('language'), checked: headerShowLang, onChange: setHeaderShowLang, icon: Globe },
+                      { label: t('tutorial'), checked: headerShowTutorial, onChange: setHeaderShowTutorial, icon: BookOpen },
                     ].map(({ label, checked, onChange, icon: Icon }) => (
                       <div key={label} className="flex flex-col gap-1.5">
                         <div className="flex items-center gap-1.5">

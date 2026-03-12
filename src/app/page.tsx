@@ -7,7 +7,7 @@ import ExportModal from "@/components/ui/ExportModal";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useTimeline, RESOLUTIONS } from "@/hooks/useTimeline";
 import { Button } from "@/components/ui/button";
-import { Upload, ChevronRight, ChevronLeft, LayoutPanelLeft, Keyboard } from "lucide-react";
+import { Upload, ChevronRight, ChevronLeft, LayoutPanelLeft, Keyboard, BookOpen } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useTranslation } from "react-i18next";
 import { useState, useEffect, useCallback } from "react";
@@ -17,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 export default function Home() {
   const [showInspector, setShowInspector] = useState(true);
   const { t, i18n } = useTranslation();
-  const { setVideoFile, resolution, setResolution, currentTime, duration, playing, setPlaying, setCurrentTime, canvasScale, setCanvasScale, isPlayerMode, headerShowLang, headerShowRes, headerShowShortcuts, headerShowTheme } = useTimeline();
+  const { setVideoFile, resolution, setResolution, currentTime, duration, playing, setPlaying, setCurrentTime, canvasScale, setCanvasScale, isPlayerMode, headerShowLang, headerShowRes, headerShowShortcuts, headerShowTheme, headerShowTutorial } = useTimeline();
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -160,6 +160,22 @@ export default function Home() {
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
+          )}
+
+          {headerShowTutorial && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger 
+                  onClick={() => window.open("/Tutorial_FG_Reproductor.pdf", "_blank")}
+                  className="inline-flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                >
+                  <BookOpen className="w-4 h-4" />
+                </TooltipTrigger>
+                <TooltipContent side="bottom" align="end" className="bg-background border border-border text-foreground shadow-lg">
+                  <p className="font-semibold">{t('tutorial')}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
 
           <ExportModal />
