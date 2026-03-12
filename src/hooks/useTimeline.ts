@@ -53,11 +53,15 @@ interface TimelineState {
   setPlaying: (playing: boolean) => void;
   setResolution: (res: Resolution) => void;
   resetTransform: () => void;
+  isPlayerMode: boolean;
+  setPlayerMode: (mode: boolean) => void;
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 export const useTimeline = create<TimelineState>((set, get) => ({
+  isPlayerMode: false,
+  setPlayerMode: (mode) => set({ isPlayerMode: mode }),
   videoFile: null,
   videoUrl: null,
   duration: 0,

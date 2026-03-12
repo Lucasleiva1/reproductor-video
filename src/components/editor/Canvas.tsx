@@ -5,14 +5,14 @@ import { useTimeline } from "@/hooks/useTimeline";
 import { motion, AnimatePresence } from "framer-motion";
 import dynamic from "next/dynamic";
 import { useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Minimize, Volume2, VolumeX, Lock, Unlock } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Minimize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
 
 export default function Canvas() {
   const { t } = useTranslation();
-  const { videoUrl, clips, zoom, posX, posY, playing, setPlaying, currentTime, setCurrentTime, setDuration, duration, setVideoFile, resolution, canvasScale, setCanvasScale } = useTimeline();
+  const { videoUrl, clips, zoom, posX, posY, playing, setPlaying, currentTime, setCurrentTime, setDuration, duration, setVideoFile, resolution, canvasScale, setCanvasScale, isPlayerMode, setPlayerMode } = useTimeline();
   const playerRef = useRef<any>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [isHovering, setIsHovering] = useState(false);
@@ -341,11 +341,24 @@ export default function Canvas() {
                     />
                   </div>
 
+                  {/* Mode Toggle Button */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setPlayerMode(!isPlayerMode); }}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    className="h-9 px-3 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 text-white/70 hover:text-white hover:bg-black/80 flex items-center justify-center transition-all min-w-9"
+                    title={isPlayerMode ? 'Switch to Editor Mode' : 'Switch to Player Mode'}
+                  >
+                    {isPlayerMode ? <Settings2 className="w-4 h-4 sm:mr-2" /> : <MonitorPlay className="w-4 h-4 sm:mr-2" />}
+                    <span className="hidden sm:inline text-xs font-medium">
+                      {isPlayerMode ? 'Editor' : 'Player'}
+                    </span>
+                  </button>
+
                   {/* Fullscreen Button */}
                   <button
                     onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
                     onDoubleClick={(e) => e.stopPropagation()}
-                    className="w-9 h-9 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 text-white/70 hover:text-white hover:bg-black/80 flex items-center justify-center transition-all"
+                    className="w-9 h-9 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 text-white/70 hover:text-white hover:bg-black/80 flex items-center justify-center transition-all shrink-0"
                     title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
                   >
                     {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}

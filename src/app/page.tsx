@@ -17,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 export default function Home() {
   const [showInspector, setShowInspector] = useState(true);
   const { t, i18n } = useTranslation();
-  const { setVideoFile, resolution, setResolution, currentTime, duration, playing, setPlaying, setCurrentTime, canvasScale, setCanvasScale } = useTimeline();
+  const { setVideoFile, resolution, setResolution, currentTime, duration, playing, setPlaying, setCurrentTime, canvasScale, setCanvasScale, isPlayerMode } = useTimeline();
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -80,6 +80,7 @@ export default function Home() {
   return (
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
       {/* Header */}
+      {!isPlayerMode && (
       <header className="h-14 border-b border-border px-6 flex items-center justify-between bg-background/95 backdrop-blur-md z-10 shrink-0">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
@@ -171,15 +172,16 @@ export default function Home() {
           </Select>
         </div>
       </header>
+      )}
 
       {/* Main Editing Area */}
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Top: Video Preview Workspace */}
-        <div className="flex-1 bg-[#121212] flex flex-col relative w-full border-b border-border shadow-inner">
+        <div className={`flex-1 bg-[#121212] flex flex-col relative w-full shadow-inner ${isPlayerMode ? '' : 'border-b border-border'}`}>
           <Canvas />
 
           {/* Canvas Zoom Indicator */}
-          {duration > 0 && (
+          {!isPlayerMode && duration > 0 && (
             <div className="absolute bottom-3 left-3 z-20 bg-black/60 backdrop-blur-sm text-white text-[11px] font-mono px-2.5 py-1 rounded-md border border-white/10 select-none tabular-nums">
               {t('canvas_zoom')}: {(canvasScale * 100).toFixed(0)}%
             </div>
@@ -187,6 +189,7 @@ export default function Home() {
         </div>
         
         {/* Bottom Panel: Editing Tools */}
+        {!isPlayerMode && (
         <div className="h-[22rem] bg-background flex shrink-0 w-full z-10 relative">
           <div className="flex-1 flex flex-col h-full border-r border-border overflow-hidden">
              <Timeline />
@@ -223,6 +226,7 @@ export default function Home() {
             )}
           </AnimatePresence>
         </div>
+        )}
       </main>
     </div>
   );
