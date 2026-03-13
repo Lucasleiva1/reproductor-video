@@ -49,7 +49,7 @@ export default function Timeline() {
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentTip(prev => (prev + 1) % TIPS_COUNT);
-    }, 5 * 60 * 1000); // 5 minutes
+    }, 30 * 1000); // 30 seconds
     return () => clearInterval(interval);
   }, []);
 
