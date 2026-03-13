@@ -73,6 +73,20 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [popoverPos, setPopoverPos] = useState({ top: 0, left: 0 });
 
+  const [devLinkIndex, setDevLinkIndex] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDevLinkIndex((prev) => (prev + 1) % 2);
+    }, 60000); // 1 minute
+    return () => clearInterval(interval);
+  }, []);
+
+  const devLinks = [
+    { text: "POWERED BY FLOWGRAVITY", url: "https://my-portfolio-tau-mauve.vercel.app/" },
+    { text: "BAJO FLOW", url: "https://bajo-flow.netlify.app/" }
+  ];
+
   // Calculate popover position when opening
   useEffect(() => {
     if (showSettings && buttonRef.current) {
@@ -131,6 +145,7 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
   ];
 
   return (
+    <>
     <div className="w-full h-full bg-background/95 backdrop-blur-sm p-6 flex flex-col gap-6">
       <div className="flex items-center pb-4 border-b border-border/50 relative">
         <h2 className="text-lg font-semibold tracking-tight tabular-nums flex-1">{t('inspector')}</h2>
@@ -436,5 +451,25 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
       </div>
 
     </div>
+
+    {/* Developer Attribution */}
+    <div className="mt-8 pt-4 border-t flex justify-center pb-2">
+      <a 
+        href={devLinks[devLinkIndex].url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="px-4 py-2 border border-border/50 rounded-full flex items-center justify-center gap-2 hover:bg-muted/50 transition-colors group cursor-pointer"
+        title="Visit Portfolio"
+      >
+        <Globe className="w-4 h-4 text-blue-500 group-hover:scale-110 transition-transform" />
+        <div className="flex flex-col">
+          {devLinkIndex === 0 && <span className="text-[9px] text-muted-foreground font-medium uppercase leading-none tracking-wider mb-0.5">Powered By</span>}
+          <span className="text-xs font-bold text-foreground leading-none tracking-wide">
+            {devLinkIndex === 0 ? "FLOWGRAVITY" : "BAJO FLOW"}
+          </span>
+        </div>
+      </a>
+    </div>
+    </>
   );
 }
