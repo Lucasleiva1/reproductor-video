@@ -7,7 +7,7 @@ import { I18nProvider } from "@/components/i18n-provider";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "FG Reproductor",
+  title: "FG Repro",
   description: "Web-Based Quick-Cutter",
 };
 

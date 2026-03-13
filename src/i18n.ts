@@ -17,7 +17,7 @@ i18n
     resources: {
       en: {
         translation: {
-          app_name: "FG Reproductor",
+          app_name: "FG Repro",
           change_video: "Change Video",
           resolution: "Resolution",
           drop_here: "Drop your video here",
@@ -98,7 +98,7 @@ i18n
       },
       es: {
         translation: {
-          app_name: "FG Reproductor",
+          app_name: "FG Repro",
           change_video: "Cambiar Video",
           resolution: "Resolución",
           drop_here: "Suelta tu video aquí",
