@@ -374,7 +374,7 @@ export default function Canvas() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 20 }}
-                  className="absolute bottom-0 left-0 right-0 px-8 pb-[88px] pt-16 bg-gradient-to-t from-black/80 to-transparent z-[45]"
+                  className="absolute bottom-0 left-0 right-0 px-8 pb-32 pt-16 bg-gradient-to-t from-black/80 to-transparent z-[45]"
                   onPointerDown={(e) => e.stopPropagation()}
                 >
                   <div 
