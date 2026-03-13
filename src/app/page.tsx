@@ -115,7 +115,7 @@ export default function Home() {
                   value={resolution.name} 
                   onValueChange={(val) => setResolution(RESOLUTIONS.find(r => r.name === val)!)}
                 >
-                  <SelectTrigger className="w-[200px] bg-muted/50 border-border h-9 text-xs">
+                  <SelectTrigger className="w-[160px] bg-muted/50 border-border h-9 text-xs">
                     <SelectValue placeholder={t('resolution')} />
                   </SelectTrigger>
                   <SelectContent>
