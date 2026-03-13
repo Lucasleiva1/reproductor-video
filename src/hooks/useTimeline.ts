@@ -67,6 +67,10 @@ interface TimelineState {
   setHeaderShowShortcuts: (v: boolean) => void;
   setHeaderShowTheme: (v: boolean) => void;
   setHeaderShowTutorial: (v: boolean) => void;
+
+  // Blade mode limit: 0 = unlimited, 1 = one cut, 2 = two cuts
+  bladeModeLimit: number;
+  setBladeModeLimit: (v: number) => void;
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -88,6 +92,10 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   setHeaderShowShortcuts: (v) => { if (typeof window !== 'undefined') localStorage.setItem('headerShowShortcuts', String(v)); set({ headerShowShortcuts: v }); },
   setHeaderShowTheme: (v) => { if (typeof window !== 'undefined') localStorage.setItem('headerShowTheme', String(v)); set({ headerShowTheme: v }); },
   setHeaderShowTutorial: (v) => { if (typeof window !== 'undefined') localStorage.setItem('headerShowTutorial', String(v)); set({ headerShowTutorial: v }); },
+
+  // Blade mode limit (default 2)
+  bladeModeLimit: typeof window !== 'undefined' ? parseInt(localStorage.getItem('bladeModeLimit') || '2', 10) : 2,
+  setBladeModeLimit: (v) => { if (typeof window !== 'undefined') localStorage.setItem('bladeModeLimit', String(v)); set({ bladeModeLimit: v }); },
 
   videoFile: null,
   videoUrl: null,

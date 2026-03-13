@@ -79,6 +79,10 @@ i18n
           show_in_header: "Show in Header",
           header_elements: "Header Elements",
           tutorial: "Tutorial",
+          cut_mode: "Cut Mode",
+          cut_1: "1 Cut",
+          cut_2: "2 Cuts",
+          cut_unlimited: "Unlimited",
         }
       },
       es: {
@@ -145,6 +149,10 @@ i18n
           show_in_header: "Mostrar en Header",
           header_elements: "Elementos del Header",
           tutorial: "Tutorial",
+          cut_mode: "Modo de Corte",
+          cut_1: "1 Corte",
+          cut_2: "2 Cortes",
+          cut_unlimited: "Ilimitado",
         }
       },
       pt: {
@@ -211,6 +219,10 @@ i18n
           show_in_header: "Mostrar no Header",
           header_elements: "Elementos do Header",
           tutorial: "Tutorial",
+          cut_mode: "Modo de Corte",
+          cut_1: "1 Corte",
+          cut_2: "2 Cortes",
+          cut_unlimited: "Ilimitado",
         }
       }
     }

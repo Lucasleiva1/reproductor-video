@@ -3,7 +3,7 @@
 import { useTimeline, RESOLUTIONS } from "@/hooks/useTimeline";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import { RotateCcw, ChevronRight, Settings, MonitorPlay, Clapperboard, Sun, Moon, Monitor, Eye, EyeOff, Globe, Ratio, Keyboard, Palette, BookOpen } from "lucide-react";
+import { RotateCcw, ChevronRight, Settings, MonitorPlay, Clapperboard, Sun, Moon, Monitor, Eye, EyeOff, Globe, Ratio, Keyboard, Palette, BookOpen, Undo2, Redo2, Play, SkipBack, SkipForward, ZoomIn, ZoomOut, Command, Scissors } from "lucide-react";
 import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -64,6 +64,8 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
     resolution, setResolution,
     headerShowLang, headerShowRes, headerShowShortcuts, headerShowTheme, headerShowTutorial,
     setHeaderShowLang, setHeaderShowRes, setHeaderShowShortcuts, setHeaderShowTheme, setHeaderShowTutorial,
+    undo, redo, past, future, saveHistory,
+    bladeModeLimit, setBladeModeLimit
   } = useTimeline();
   const { theme, setTheme } = useTheme();
   const [showSettings, setShowSettings] = useState(false);
@@ -146,7 +148,29 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
             <Settings className={`w-4 h-4 transition-transform duration-500 ${showSettings ? 'rotate-90' : ''}`} />
           </Button>
 
-          <Button variant="ghost" size="icon" onClick={resetTransform} title={t('reset_all')} className="rounded-full w-8 h-8">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={undo} 
+            disabled={past.length === 0}
+            title={t('shortcut_undo')} 
+            className="rounded-full w-8 h-8 text-muted-foreground hover:text-foreground"
+          >
+            <Undo2 className="w-4 h-4" />
+          </Button>
+
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={redo} 
+            disabled={future.length === 0}
+            title={t('shortcut_redo')} 
+            className="rounded-full w-8 h-8 text-muted-foreground hover:text-foreground"
+          >
+            <Redo2 className="w-4 h-4" />
+          </Button>
+
+          <Button variant="ghost" size="icon" onClick={() => { saveHistory(); resetTransform(); }} title={t('reset_all')} className="rounded-full w-8 h-8 text-muted-foreground hover:text-foreground">
             <RotateCcw className="w-4 h-4" />
           </Button>
 
@@ -172,7 +196,7 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
               style={{ top: popoverPos.top, left: popoverPos.left, width: 304, backdropFilter: 'blur(20px)', maxHeight: `calc(100vh - ${popoverPos.top + 16}px)`, overflowY: 'auto' }}
             >
               {/* Header */}
-              <div className="px-4 py-3 border-b border-border/50 bg-muted/30 sticky top-0 z-10">
+              <div className="px-4 py-3 border-b border-border/50 bg-background/95 backdrop-blur-md sticky top-0 z-10">
                 <div className="flex items-center gap-2">
                   <Settings className="w-3.5 h-3.5 text-muted-foreground" />
                   <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{t('settings')}</span>
@@ -312,6 +336,70 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
                           <span className="text-[11px] text-foreground truncate">{label}</span>
                         </div>
                         <ToggleSwitch checked={checked} onChange={onChange} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-border/50" />
+
+                {/* Cut Mode */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Scissors className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">{t('cut_mode')}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { value: 1, label: t('cut_1'), active: 'bg-red-500/15 border-red-500/40 text-red-400' },
+                      { value: 2, label: t('cut_2'), active: 'bg-indigo-500/15 border-indigo-500/40 text-indigo-400' },
+                      { value: 0, label: t('cut_unlimited'), active: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400' },
+                    ].map(({ value, label, active }) => (
+                      <button
+                        key={value}
+                        onClick={() => setBladeModeLimit(value)}
+                        className={`flex flex-col items-center gap-1 px-2 py-2 rounded-lg border text-[11px] font-medium transition-all ${
+                          bladeModeLimit === value ? active : 'bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                        }`}
+                      >
+                        {value === 0 ? '∞' : `✂️×${value}`}
+                        <span className="text-[9px]">{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-border/50" />
+
+                {/* Keyboard Shortcuts List */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Keyboard className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">{t('keyboard_shortcuts')}</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {[
+                      { icon: Play, keys: ["Space"], label: t('shortcut_play') },
+                      { icon: SkipBack, keys: ["J"], label: t('shortcut_back').split(' ')[0] },
+                      { icon: SkipForward, keys: ["L"], label: t('shortcut_forward').split(' ')[0] },
+                      { icon: SkipBack, keys: ["←"], size: "icon-sm", label: t('shortcut_frame_back').split(' ')[0] },
+                      { icon: SkipForward, keys: ["→"], size: "icon-sm", label: t('shortcut_frame_forward').split(' ')[0] },
+                      { icon: ZoomIn, keys: ["+", "-"], label: t('zoom') + " Canvas" },
+                      { icon: Undo2, keys: ["Ctrl+Z"], label: t('shortcut_undo') },
+                      { icon: Redo2, keys: ["Shift+Z"], label: t('shortcut_redo') },
+                    ].map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between text-[10px] bg-muted/10 hover:bg-muted/20 p-1.5 rounded-md border border-border/20 transition-colors group">
+                        <div className="flex items-center gap-2">
+                          <item.icon className="w-3 h-3 text-muted-foreground group-hover:text-indigo-400 transition-colors" />
+                          <span className="text-muted-foreground/80">{item.label}</span>
+                        </div>
+                        <div className="flex gap-1">
+                          {item.keys.map(k => (
+                            <span key={k} className="font-mono bg-background/50 px-1 rounded-sm border border-border/50 text-foreground/90 uppercase text-[9px]">
+                              {k}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     ))}
                   </div>

@@ -102,96 +102,146 @@ export default function Home() {
             </Button>
           </div>
           
-          {headerShowRes && (
-          <Select 
-            value={resolution.name} 
-            onValueChange={(val) => setResolution(RESOLUTIONS.find(r => r.name === val)!)}
-          >
-            <SelectTrigger className="w-[200px] bg-muted/50 border-border h-9 text-xs">
-              <SelectValue placeholder={t('resolution')} />
-            </SelectTrigger>
-            <SelectContent>
-              {RESOLUTIONS.map(r => (
-                <SelectItem key={r.name} value={r.name} className="text-xs">{r.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          )}
+          <AnimatePresence>
+            {headerShowRes && (
+              <motion.div
+                key="res"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                layout
+              >
+                <Select 
+                  value={resolution.name} 
+                  onValueChange={(val) => setResolution(RESOLUTIONS.find(r => r.name === val)!)}
+                >
+                  <SelectTrigger className="w-[200px] bg-muted/50 border-border h-9 text-xs">
+                    <SelectValue placeholder={t('resolution')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RESOLUTIONS.map(r => (
+                      <SelectItem key={r.name} value={r.name} className="text-xs">{r.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </motion.div>
+            )}
 
-          {headerShowTheme && <ThemeToggle />}
+            {headerShowTheme && (
+              <motion.div
+                key="theme"
+                initial={{ opacity: 0, rotate: -15 }}
+                animate={{ opacity: 1, rotate: 0 }}
+                exit={{ opacity: 0, rotate: 15 }}
+                layout
+              >
+                <ThemeToggle />
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Keyboard Shortcuts Tooltip */}
-          {headerShowShortcuts && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger className="inline-flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                  <Keyboard className="w-4 h-4" />
-              </TooltipTrigger>
-              <TooltipContent side="bottom" align="end" className="max-w-xs bg-background border border-border text-foreground shadow-lg">
-                <p className="font-semibold mb-3">{t('keyboard_shortcuts')}</p>
-                <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs text-muted-foreground items-center">
-                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">Space</kbd>
-                  <span>{t('shortcut_play')}</span>
-                  
-                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">J</kbd>
-                  <span>{t('shortcut_back')}</span>
-                  
-                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">L</kbd>
-                  <span>{t('shortcut_forward')}</span>
-                  
-                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">←</kbd>
-                  <span>{t('shortcut_frame_back')}</span>
-                  
-                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">→</kbd>
-                  <span>{t('shortcut_frame_forward')}</span>
-                  
-                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">+</kbd>
-                  <span>{t('shortcut_zoom_in')}</span>
-                  
-                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">-</kbd>
-                  <span>{t('shortcut_zoom_out')}</span>
-                  
-                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">Ctrl+Z</kbd>
-                  <span>{t('shortcut_undo')}</span>
-                  
-                  <kbd className="px-2 py-1 bg-muted border border-border rounded-md text-[10px] font-mono text-foreground font-semibold uppercase shadow-sm">Ctrl+Shift+Z</kbd>
-                  <span>{t('shortcut_redo')}</span>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          )}
+          <AnimatePresence>
+            {headerShowShortcuts && (
+              <motion.div
+                key="shortcuts"
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                layout
+              >
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger className="inline-flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                        <Keyboard className="w-4 h-4" />
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" align="end" className="max-w-xs bg-background/95 backdrop-blur-sm border border-border text-foreground shadow-2xl p-4">
+                      <p className="font-semibold mb-3 text-indigo-400 flex items-center gap-2">
+                        <Keyboard className="w-4 h-4" />
+                        {t('keyboard_shortcuts')}
+                      </p>
+                      <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2.5 text-[11px] text-muted-foreground items-center">
+                        <kbd className="px-1.5 py-0.5 bg-muted border border-border rounded text-[9px] font-mono text-foreground uppercase shadow-sm">Space</kbd>
+                        <span>{t('shortcut_play')}</span>
+                        
+                        <kbd className="px-1.5 py-0.5 bg-muted border border-border rounded text-[9px] font-mono text-foreground uppercase shadow-sm">J / L</kbd>
+                        <span>{t('shortcut_back').split(' ')[0]} / {t('shortcut_forward').split(' ')[0]}</span>
+                        
+                        <kbd className="px-1.5 py-0.5 bg-muted border border-border rounded text-[9px] font-mono text-foreground uppercase shadow-sm">← / →</kbd>
+                        <span>{t('shortcut_frame_back')} / {t('shortcut_frame_forward')}</span>
+                        
+                        <kbd className="px-1.5 py-0.5 bg-muted border border-border rounded text-[9px] font-mono text-foreground uppercase shadow-sm">+ / -</kbd>
+                        <span>{t('zoom')} Canvas</span>
+                        
+                        <kbd className="px-1.5 py-0.5 bg-muted border border-border rounded text-[9px] font-mono text-foreground uppercase shadow-sm">Ctrl+Z</kbd>
+                        <span>{t('shortcut_undo')}</span>
+                        
+                        <kbd className="px-1.5 py-0.5 bg-muted border border-border rounded text-[9px] font-mono text-foreground uppercase shadow-sm">Shift+Z</kbd>
+                        <span>{t('shortcut_redo')}</span>
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </motion.div>
+            )}
 
-          {headerShowTutorial && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger 
-                  onClick={() => window.open("/Tutorial_FG_Reproductor.pdf", "_blank")}
-                  className="inline-flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                >
-                  <BookOpen className="w-4 h-4" />
-                </TooltipTrigger>
-                <TooltipContent side="bottom" align="end" className="bg-background border border-border text-foreground shadow-lg">
-                  <p className="font-semibold">{t('tutorial')}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
+            {headerShowTutorial && (
+              <motion.div
+                key="tutorial"
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -5 }}
+                layout
+              >
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger 
+                      onClick={() => window.open("/Tutorial_FG_Reproductor.pdf", "_blank")}
+                      className="inline-flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    >
+                      <BookOpen className="w-4 h-4" />
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" align="end" className="bg-background/95 backdrop-blur-sm border border-border text-foreground shadow-2xl p-3">
+                      <div className="flex flex-col gap-1">
+                        <p className="font-bold text-indigo-400 flex items-center gap-2">
+                          <BookOpen className="w-3.5 h-3.5" />
+                          {t('tutorial')}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">Abrir guía en PDF interactivo</p>
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          <ExportModal />
+          <motion.div layout>
+            <ExportModal />
+          </motion.div>
           
-          {headerShowLang && (
-          <Select value={i18n.resolvedLanguage || 'es'} onValueChange={(val) => i18n.changeLanguage(val as string)}>
-            <SelectTrigger className="w-[60px] bg-muted/50 border-border h-9 text-xs font-semibold focus:ring-0 uppercase">
-              {i18n.resolvedLanguage ? i18n.resolvedLanguage.toUpperCase() : 'ES'}
-            </SelectTrigger>
-            <SelectContent align="end">
-              <SelectItem value="es" className="text-xs">Español</SelectItem>
-              <SelectItem value="en" className="text-xs">English</SelectItem>
-              <SelectItem value="pt" className="text-xs">Português</SelectItem>
-            </SelectContent>
-          </Select>
-          )}
+          <AnimatePresence>
+            {headerShowLang && (
+              <motion.div
+                key="lang"
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                layout
+              >
+                <Select value={i18n.resolvedLanguage || 'es'} onValueChange={(val) => i18n.changeLanguage(val as string)}>
+                  <SelectTrigger className="w-[60px] bg-muted/50 border-border h-9 text-xs font-semibold focus:ring-0 uppercase">
+                    {i18n.resolvedLanguage ? i18n.resolvedLanguage.toUpperCase() : 'ES'}
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    <SelectItem value="es" className="text-xs">Español</SelectItem>
+                    <SelectItem value="en" className="text-xs">English</SelectItem>
+                    <SelectItem value="pt" className="text-xs">Português</SelectItem>
+                  </SelectContent>
+                </Select>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </header>
       )}

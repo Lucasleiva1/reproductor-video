@@ -33,12 +33,13 @@ type DragMode = 'move' | 'trim-left' | 'trim-right' | null;
 
 export default function Timeline() {
   const { t } = useTranslation();
-  const { duration, currentTime, clips, splitClip, removeClip, videoFile, playing, setPlaying, setCurrentTime } = useTimeline();
+  const { duration, currentTime, clips, splitClip, removeClip, videoFile, playing, setPlaying, setCurrentTime, bladeModeLimit } = useTimeline();
   const [timelineZoom, setTimelineZoom] = useState(1);
   const trackRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const panRef = useRef({ isDragging: false, startX: 0, scrollLeft: 0 });
   const [bladeMode, setBladeMode] = useState(false);
+  const [bladeCutsRemaining, setBladeCutsRemaining] = useState(bladeModeLimit || 2);
   const [snappingActive, setSnappingActive] = useState(true);
 
   // Unified drag state for move + trim
@@ -330,7 +331,19 @@ export default function Timeline() {
     const rect = trackRef.current.getBoundingClientRect();
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
     splitClip(clipId, (x / rect.width) * duration);
-    setBladeMode(false);
+
+    // Handle cut counter
+    if (bladeModeLimit === 0) {
+      // Unlimited mode: stay active
+      return;
+    }
+    const remaining = bladeCutsRemaining - 1;
+    if (remaining <= 0) {
+      setBladeMode(false);
+      setBladeCutsRemaining(bladeModeLimit);
+    } else {
+      setBladeCutsRemaining(remaining);
+    }
   };
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -361,11 +374,25 @@ export default function Timeline() {
                 {playing ? <FaPause className="w-3 h-3" /> : <FaPlay className="w-3 h-3 translate-x-0.5" />}
              </button>
              <button 
-               onClick={() => setBladeMode(!bladeMode)} 
-               title={bladeMode ? 'Cortando...' : 'Blade Tool'}
-               className={`p-2 rounded-lg transition-all flex items-center justify-center ${bladeMode ? 'bg-red-500 text-white shadow-lg shadow-red-500/40 scale-110' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white'}`}
+               onClick={() => {
+                 const newVal = !bladeMode;
+                 setBladeMode(newVal);
+                 if (newVal) setBladeCutsRemaining(bladeModeLimit || 2);
+               }} 
+               title={bladeMode ? (bladeModeLimit === 0 ? 'Cortando... (∞)' : `Cortando... (${bladeCutsRemaining} restante${bladeCutsRemaining !== 1 ? 's' : ''})`) : 'Blade Tool'}
+               className={`p-2 rounded-lg transition-all flex items-center justify-center relative ${bladeMode ? 'bg-red-500 text-white shadow-lg shadow-red-500/40 scale-110' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white'}`}
              >
                <span className="text-base leading-none">✂️</span>
+               {bladeMode && bladeModeLimit !== 0 && (
+                 <span className="absolute -top-1.5 -right-1.5 bg-white text-red-600 text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center shadow-md">
+                   {bladeCutsRemaining}
+                 </span>
+               )}
+               {bladeMode && bladeModeLimit === 0 && (
+                 <span className="absolute -top-1.5 -right-1.5 bg-white text-red-600 text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center shadow-md">
+                   ∞
+                 </span>
+               )}
              </button>
              <button 
                onClick={() => setSnappingActive(!snappingActive)} 
