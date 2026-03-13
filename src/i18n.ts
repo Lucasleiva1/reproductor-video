@@ -83,6 +83,17 @@ i18n
           cut_1: "1 Cut",
           cut_2: "2 Cuts",
           cut_unlimited: "Unlimited",
+          tip_1: "Switch between Editor and Player mode from Settings ⚙️ to customize your workflow.",
+          tip_2: "Customize which header buttons are visible (Theme, Shortcuts, Language...) from Settings.",
+          tip_3: "Use the ✂️ Cut tool to split clips. Configure how many cuts (1, 2, or unlimited) in Settings.",
+          tip_4: "Shrink the video from the sides to trim the start or end of the clip.",
+          tip_5: "Enable Snapping 🧲 to auto-align clips when moving or trimming them.",
+          tip_6: "Right-click on any clip to access the context menu and delete it.",
+          tip_7: "Adjust video zoom, position X/Y from the Inspector panel to reframe your export.",
+          tip_8: "Check the keyboard shortcuts to edit faster.",
+          tip_9: "Visit the Configuration in the little gear ⚙️ of the Inspector.",
+          tip_10: "Use vertical resolution (e.g. 1080x1920) for social media.",
+          tip_11: "Read the instructions in the Tutorial.",
         }
       },
       es: {
@@ -153,6 +164,17 @@ i18n
           cut_1: "1 Corte",
           cut_2: "2 Cortes",
           cut_unlimited: "Ilimitado",
+          tip_1: "Cambiá entre modo Editor y Reproductor desde la Configuración ⚙️ para personalizar tu flujo.",
+          tip_2: "Podés configurar por defecto qué opciones de arriba se muestran (Tema, etc) desde la Configuración.",
+          tip_3: "Usá la herramienta ✂️ Corte para dividir clips. Configurá cómo funciona (1, 2 o ilimitado) en Configuración.",
+          tip_4: "Achicá de los laterales el clip para cortar el inicio o final del video.",
+          tip_5: "Activá el Ajuste 🧲 para alinear clips automáticamente al moverlos o recortarlos.",
+          tip_6: "Hacé clic derecho sobre cualquier clip para acceder al menú y eliminarlo.",
+          tip_7: "Ajustá el zoom del video y la posición X/Y desde el Inspector para reencuadrar tu exportación.",
+          tip_8: "Podés ver los atajos de teclado para editar más rápido.",
+          tip_9: "Visitá la Configuración en la ruedita ⚙️ del Inspector.",
+          tip_10: "Podés usar la resolución vertical para las redes sociales.",
+          tip_11: "Lee las instrucciones en el Tutorial para aprovechar al máximo la aplicación.",
         }
       },
       pt: {
@@ -223,6 +245,17 @@ i18n
           cut_1: "1 Corte",
           cut_2: "2 Cortes",
           cut_unlimited: "Ilimitado",
+          tip_1: "Alterne entre modo Editor e Reprodutor nas Configurações ⚙️ para personalizar seu fluxo.",
+          tip_2: "Configure quais opções do topo aparecem (Tema, etc) nas Configurações.",
+          tip_3: "Use a ferramenta ✂️ Corte para dividir clips. Configure (1, 2 ou ilimitado) nas Configurações.",
+          tip_4: "Diminua as laterais do clip para cortar o início ou o final do vídeo.",
+          tip_5: "Ative o Ajuste 🧲 para alinhar clips automaticamente ao movê-los ou cortá-los.",
+          tip_6: "Clique com o botão direito em qualquer clip para acessar o menu e excluí-lo.",
+          tip_7: "Ajuste o zoom do vídeo e posição X/Y no Inspetor para reenquadrar sua exportação.",
+          tip_8: "Você pode ver os atalhos de teclado para editar mais rápido.",
+          tip_9: "Visite a Configuração na engrenagem ⚙️ do Inspetor.",
+          tip_10: "Use a resolução vertical para as redes sociais.",
+          tip_11: "Leia as instruções no Tutorial.",
         }
       }
     }

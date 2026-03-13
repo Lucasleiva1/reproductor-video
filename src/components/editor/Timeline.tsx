@@ -2,10 +2,10 @@
 
 import { useTimeline, Clip } from "@/hooks/useTimeline";
 import { Slider } from "@/components/ui/slider";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { FaPlay, FaPause } from "react-icons/fa";
-import { Trash2, Magnet } from "lucide-react";
+import { Trash2, Magnet, Lightbulb } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -41,6 +41,17 @@ export default function Timeline() {
   const [bladeMode, setBladeMode] = useState(false);
   const [bladeCutsRemaining, setBladeCutsRemaining] = useState(bladeModeLimit || 2);
   const [snappingActive, setSnappingActive] = useState(true);
+
+  // --- Usage Tips ---
+  const TIPS_COUNT = 11;
+  const [currentTip, setCurrentTip] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTip(prev => (prev + 1) % TIPS_COUNT);
+    }, 5 * 60 * 1000); // 5 minutes
+    return () => clearInterval(interval);
+  }, []);
 
   // Unified drag state for move + trim
   const [activeClipId, setActiveClipId] = useState<string | null>(null);
@@ -402,7 +413,26 @@ export default function Timeline() {
                <Magnet className="w-3.5 h-3.5" />
              </button>
           </span>
-          <span className="text-zinc-500 text-xs">{t('timeline_desc')}</span>
+          <div className="flex items-center gap-2 min-h-[20px]">
+             <div className="p-1 rounded-md bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+               <Lightbulb className="w-3 h-3 text-amber-400" />
+             </div>
+             <AnimatePresence mode="wait">
+               <motion.span
+                 key={currentTip}
+                 initial={{ opacity: 0, y: 6 }}
+                 animate={{ opacity: 1, y: 0 }}
+                 exit={{ opacity: 0, y: -6 }}
+                 transition={{ duration: 0.3 }}
+                 className="text-zinc-500 text-xs leading-snug cursor-pointer hover:text-zinc-400 transition-colors"
+                 onClick={() => setCurrentTip(prev => (prev + 1) % TIPS_COUNT)}
+                 title={`Tip ${currentTip + 1}/${TIPS_COUNT}`}
+               >
+                 <span className="text-amber-400/70 font-semibold text-[10px] mr-1.5">{currentTip + 1}/{TIPS_COUNT}</span>
+                 {t(`tip_${currentTip + 1}`)}
+               </motion.span>
+             </AnimatePresence>
+           </div>
         </div>
         <div className="flex items-center gap-3 mr-12">
           <span className="text-zinc-500 text-xs">{t('zoom')} ({timelineZoom.toFixed(1)}x)</span>
