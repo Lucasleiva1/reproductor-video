@@ -455,25 +455,7 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
     {/* Developer Attribution */}
     <div className="mt-8 pt-4 border-t flex flex-col items-center gap-3 pb-2">
       <div className="flex items-center gap-3 group/dev">
-        <a 
-          href={devLinks[devLinkIndex].url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="px-5 py-2.5 border border-border/50 rounded-full flex items-center justify-center gap-3 hover:bg-muted/50 transition-all group cursor-pointer shadow-sm hover:shadow-md"
-          title="Visit Portfolio"
-        >
-          <Globe className="w-4 h-4 text-blue-500 group-hover:rotate-12 transition-transform" />
-          <div className="flex flex-col min-w-[100px]">
-            <span className="text-[9px] text-muted-foreground font-semibold uppercase leading-none tracking-[0.1em] mb-1">
-              {devLinkIndex === 0 ? "Powered By" : "Editor de video"}
-            </span>
-            <span className="text-xs font-black text-foreground leading-none tracking-wider">
-              {devLinkIndex === 0 ? "FLOWGRAVITY" : "BAJO FLOW"}
-            </span>
-          </div>
-        </a>
-
-        {/* Manual Toggle Arrow (Right side) */}
+        {/* Manual Toggle Arrow (Left side) */}
         <button 
           onClick={(e) => {
             e.preventDefault();
@@ -483,8 +465,35 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
           className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center text-white/50 hover:text-white hover:bg-zinc-800 transition-all shadow-xl"
           title="Change brand"
         >
-          <ChevronRight className="w-4 h-4" />
+          <ChevronLeft className="w-4 h-4" />
         </button>
+
+        <div className="relative group">
+          <AnimatePresence mode="wait">
+            <motion.a 
+              key={devLinkIndex}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 10 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              href={devLinks[devLinkIndex].url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-5 py-2.5 border border-border/50 rounded-full flex items-center justify-center gap-3 hover:bg-muted/50 transition-all group/link cursor-pointer shadow-sm hover:shadow-md bg-background/50"
+              title="Visit Portfolio"
+            >
+              <Globe className="w-4 h-4 text-blue-500 group-hover/link:rotate-12 transition-transform" />
+              <div className="flex flex-col min-w-[100px]">
+                <span className="text-[9px] text-muted-foreground font-semibold uppercase leading-none tracking-[0.1em] mb-1">
+                  {devLinkIndex === 0 ? "Powered By" : "Editor de video"}
+                </span>
+                <span className="text-xs font-black text-foreground leading-none tracking-wider">
+                  {devLinkIndex === 0 ? "FLOWGRAVITY" : "BAJO FLOW"}
+                </span>
+              </div>
+            </motion.a>
+          </AnimatePresence>
+        </div>
       </div>
     </div>
     </>
