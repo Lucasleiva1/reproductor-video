@@ -288,7 +288,7 @@ export default function Canvas() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 20 }}
-                  className={`absolute ${isFullscreen ? 'bottom-14' : 'bottom-6'} bg-background/80 backdrop-blur-md border border-border/50 text-foreground px-6 py-3 rounded-full flex items-center gap-6 shadow-2xl z-50`}
+                  className={`absolute ${isFullscreen ? 'bottom-8' : 'bottom-6'} bg-background/80 backdrop-blur-md border border-border/50 text-foreground px-6 py-3 rounded-full flex items-center gap-6 shadow-2xl z-50`}
                 >
                   <button onClick={() => skipTime(-5)} className="hover:text-blue-400 transition-colors" title="-5 Seconds">
                     <SkipBack className="w-5 h-5" />
@@ -313,7 +313,7 @@ export default function Canvas() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
-                  className={`absolute ${isFullscreen ? 'bottom-16' : 'bottom-3'} right-3 z-50 flex items-center gap-2`}
+                  className={`absolute ${isFullscreen ? 'bottom-10' : 'bottom-3'} right-3 z-50 flex items-center gap-2`}
                 >
                   {/* Volume Control */}
                   <div className="flex items-center gap-1.5 bg-black/60 backdrop-blur-sm border border-white/10 rounded-md px-2 py-1.5 group"
@@ -374,7 +374,7 @@ export default function Canvas() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 20 }}
-                  className="absolute bottom-0 left-0 right-0 px-8 pb-6 pt-12 bg-gradient-to-t from-black/80 to-transparent z-[45]"
+                  className="absolute bottom-0 left-0 right-0 px-8 pb-[88px] pt-16 bg-gradient-to-t from-black/80 to-transparent z-[45]"
                   onPointerDown={(e) => e.stopPropagation()}
                 >
                   <div 
