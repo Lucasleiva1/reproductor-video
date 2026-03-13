@@ -3,7 +3,7 @@
 import { useTimeline, RESOLUTIONS } from "@/hooks/useTimeline";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import { RotateCcw, ChevronRight, Settings, MonitorPlay, Clapperboard, Sun, Moon, Monitor, Eye, EyeOff, Globe, Ratio, Keyboard, Palette, BookOpen, Undo2, Redo2, Play, SkipBack, SkipForward, ZoomIn, ZoomOut, Command, Scissors } from "lucide-react";
+import { RotateCcw, ChevronRight, ChevronLeft, Settings, MonitorPlay, Clapperboard, Sun, Moon, Monitor, Eye, EyeOff, Globe, Ratio, Keyboard, Palette, BookOpen, Undo2, Redo2, Play, SkipBack, SkipForward, ZoomIn, ZoomOut, Command, Scissors } from "lucide-react";
 import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -453,22 +453,39 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
     </div>
 
     {/* Developer Attribution */}
-    <div className="mt-8 pt-4 border-t flex justify-center pb-2">
-      <a 
-        href={devLinks[devLinkIndex].url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="px-4 py-2 border border-border/50 rounded-full flex items-center justify-center gap-2 hover:bg-muted/50 transition-colors group cursor-pointer"
-        title="Visit Portfolio"
-      >
-        <Globe className="w-4 h-4 text-blue-500 group-hover:scale-110 transition-transform" />
-        <div className="flex flex-col">
-          {devLinkIndex === 0 && <span className="text-[9px] text-muted-foreground font-medium uppercase leading-none tracking-wider mb-0.5">Powered By</span>}
-          <span className="text-xs font-bold text-foreground leading-none tracking-wide">
-            {devLinkIndex === 0 ? "FLOWGRAVITY" : "BAJO FLOW"}
-          </span>
-        </div>
-      </a>
+    <div className="mt-8 pt-4 border-t flex flex-col items-center gap-3 pb-2">
+      <div className="flex items-center gap-3 group/dev">
+        <a 
+          href={devLinks[devLinkIndex].url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-5 py-2.5 border border-border/50 rounded-full flex items-center justify-center gap-3 hover:bg-muted/50 transition-all group cursor-pointer shadow-sm hover:shadow-md"
+          title="Visit Portfolio"
+        >
+          <Globe className="w-4 h-4 text-blue-500 group-hover:rotate-12 transition-transform" />
+          <div className="flex flex-col min-w-[100px]">
+            <span className="text-[9px] text-muted-foreground font-semibold uppercase leading-none tracking-[0.1em] mb-1">
+              {devLinkIndex === 0 ? "Powered By" : "Editor de video"}
+            </span>
+            <span className="text-xs font-black text-foreground leading-none tracking-wider">
+              {devLinkIndex === 0 ? "FLOWGRAVITY" : "BAJO FLOW"}
+            </span>
+          </div>
+        </a>
+
+        {/* Manual Toggle Arrow (Right side) */}
+        <button 
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setDevLinkIndex((prev) => (prev + 1) % 2);
+          }}
+          className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center text-white/50 hover:text-white hover:bg-zinc-800 transition-all shadow-xl"
+          title="Change brand"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
     </div>
     </>
   );
