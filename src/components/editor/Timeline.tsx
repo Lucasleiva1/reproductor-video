@@ -1,6 +1,5 @@
-"use client";
 
-import { useTimeline, Clip } from "@/hooks/useTimeline";
+import { useTimeline } from "@/hooks/useTimeline";
 import { Slider } from "@/components/ui/slider";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useRef, useCallback, useEffect } from "react";
@@ -33,7 +32,7 @@ type DragMode = 'move' | 'trim-left' | 'trim-right' | null;
 
 export default function Timeline() {
   const { t } = useTranslation();
-  const { duration, currentTime, clips, splitClip, removeClip, videoFile, playing, setPlaying, setCurrentTime, bladeModeLimit } = useTimeline();
+  const { duration, currentTime, clips, splitClip, removeClip, videoFile, playing, setPlaying, setCurrentTime, bladeModeLimit, timelineTimeMode, showTips, thumbnails } = useTimeline();
   const [timelineZoom, setTimelineZoom] = useState(1);
   const trackRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -59,6 +58,11 @@ export default function Timeline() {
   const [isSnapped, setIsSnapped] = useState(false);
   const [trimmingSide, setTrimmingSide] = useState<'left' | 'right' | null>(null);
 
+  const isScrubbing = useRef(false);
+  const lastClientX = useRef<number | null>(null);
+  const autoPanActive = useRef<boolean>(false);
+  const autoPanFrame = useRef<number | null>(null);
+
   const dragState = useRef<{
     id: string | null;
     mode: DragMode;
@@ -71,10 +75,11 @@ export default function Timeline() {
     // Snapshot of timeline state at drag start (prevents feedback loops)
     initialDuration: number;
     initialTrackWidth: number;
+    initialScrollLeft: number;
   }>({
     id: null, mode: null, startX: 0,
     initialStartAt: 0, initialTrimStart: 0, initialTrimEnd: 0, initialSourceDuration: 0,
-    initialDuration: 0, initialTrackWidth: 1,
+    initialDuration: 0, initialTrackWidth: 1, initialScrollLeft: 0,
   });
 
   // --- Keyboard Shortcuts (Undo/Redo) ---
@@ -97,6 +102,38 @@ export default function Timeline() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // --- PLAYBACK AUTO-PAGINATION ---
+  useEffect(() => {
+    // Only auto-paginate when actively playing, and never when the user is actively dragging/scrubbing
+    if (!playing || isScrubbing.current || dragState.current.id || duration === 0 || !scrollContainerRef.current || !trackRef.current) return;
+
+    const container = scrollContainerRef.current;
+    
+    // Calculate the absolute pixel position of the playhead within the scrollable world
+    const trackWidth = trackRef.current.getBoundingClientRect().width;
+    const worldPlayheadX = trackRef.current.offsetLeft + (currentTime / duration) * trackWidth;
+    
+    const viewLeft = container.scrollLeft;
+    const viewRight = container.scrollLeft + container.clientWidth;
+
+    // Optional padding so it doesn't glue exactly to the pixels of the edge
+    const EDGE_PADDING = 60; 
+
+    if (worldPlayheadX > viewRight) {
+      // Reached the right edge: jump the scroll so the playhead reappears at the left edge!
+      container.scrollTo({
+        left: worldPlayheadX - EDGE_PADDING,
+        behavior: 'auto'
+      });
+    } else if (worldPlayheadX < viewLeft) {
+      // Reached the left edge (e.g. video loops back or jumps back)
+      container.scrollTo({
+        left: Math.max(0, worldPlayheadX - EDGE_PADDING),
+        behavior: 'auto'
+      });
+    }
+  }, [currentTime, playing, duration]);
+
   // --- Helpers ---
   const getPxPerSec = useCallback(() => {
     if (duration <= 0 || !trackRef.current) return 1;
@@ -109,35 +146,12 @@ export default function Timeline() {
   }, [getPxPerSec]);
 
   const formatTime = (secs: number) => {
-    if (secs >= 60) return `${Math.floor(secs / 60)}:${(Math.floor(secs) % 60).toString().padStart(2, '0')}`;
+    if (timelineTimeMode === 'hidden') return '';
+    if (timelineTimeMode === 'minutes') {
+      return `${Math.floor(secs / 60)}:${Math.floor(secs % 60).toString().padStart(2, '0')}`;
+    }
     return `${secs.toFixed(1)}s`;
   };
-
-  // --- Collision Detection ---
-  // Returns a clamped value that doesn't overlap other clips
-  const clampAgainstOthers = useCallback((clipId: string, newStartAt: number, clipDuration: number): number => {
-    const otherClips = clips.filter(c => c.id !== clipId).sort((a, b) => a.startAt - b.startAt);
-    const newEnd = newStartAt + clipDuration;
-
-    for (const other of otherClips) {
-      const otherStart = other.startAt;
-      const otherEnd = other.startAt + (other.trimEnd - other.trimStart);
-
-      // If we overlap with another clip
-      if (newStartAt < otherEnd && newEnd > otherStart) {
-        // Decide which side to clamp based on movement direction
-        const overlapLeft = otherEnd - newStartAt;
-        const overlapRight = newEnd - otherStart;
-        if (overlapLeft < overlapRight) {
-          newStartAt = otherEnd;
-        } else {
-          newStartAt = otherStart - clipDuration;
-        }
-      }
-    }
-
-    return Math.max(0, newStartAt);
-  }, [clips]);
 
   // --- DRAG START ---
   const startDrag = (e: React.PointerEvent, clipId: string, mode: DragMode) => {
@@ -163,18 +177,30 @@ export default function Timeline() {
       initialSourceDuration: clip.sourceDuration,
       initialDuration: duration,
       initialTrackWidth: trackRef.current?.getBoundingClientRect().width || 1,
+      initialScrollLeft: scrollContainerRef.current?.scrollLeft || 0,
     };
     setActiveClipId(clipId);
     setDragMode(mode);
     setTrimmingSide(mode === 'trim-left' ? 'left' : mode === 'trim-right' ? 'right' : null);
   };
 
-  // --- DRAG MOVE (unified for move + trim) ---
-  const onDragMove = useCallback((e: React.PointerEvent) => {
-    const ds = dragState.current;
-    if (!ds.id || !ds.mode || !trackRef.current) return;
+  // --- SCRUBBING LOGIC ---
+  const handleScrub = useCallback((clientX: number) => {
+    if (!trackRef.current) return;
+    const rect = trackRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
+    setCurrentTime((x / rect.width) * duration);
+  }, [duration, setCurrentTime]);
 
-    const pxDelta = e.clientX - ds.startX;
+  // --- DRAG PROCESSING LOGIC ---
+  const processDrag = useCallback((clientX: number) => {
+    const ds = dragState.current;
+    if (!ds.id || !ds.mode || !trackRef.current || !scrollContainerRef.current) return;
+
+    // We must account for the timeline scrolling underneath our mouse
+    const scrollDelta = scrollContainerRef.current.scrollLeft - ds.initialScrollLeft;
+    const pxDelta = clientX - ds.startX + scrollDelta;
+    
     // Use SNAPSHOTTED values from drag start to prevent feedback loops
     const timeDelta = (pxDelta / ds.initialTrackWidth) * ds.initialDuration;
 
@@ -209,35 +235,26 @@ export default function Timeline() {
 
     } else if (ds.mode === 'trim-left') {
       // --- TRIM LEFT ---
-      // When trimming from the left:
-      // - trimStart changes (reveals/hides beginning of source)
-      // - startAt changes by the SAME amount (clip stays anchored at its right edge visually)
-      // These must change atomically to avoid jitter
-
       let newTrimStart = ds.initialTrimStart + timeDelta;
       let newStartAt = ds.initialStartAt + timeDelta;
 
-      // Clamp: trimStart can't go below 0
       if (newTrimStart < 0) {
-        newStartAt -= newTrimStart; // Compensate
+        newStartAt -= newTrimStart;
         newTrimStart = 0;
       }
 
-      // Clamp: trimStart can't go past trimEnd - MIN_CLIP_DURATION
       const maxTrimStart = ds.initialTrimEnd - MIN_CLIP_DURATION;
       if (newTrimStart > maxTrimStart) {
         const overshoot = newTrimStart - maxTrimStart;
         newTrimStart = maxTrimStart;
-        newStartAt -= overshoot; // Don't let startAt drift
+        newStartAt -= overshoot;
       }
 
-      // Clamp: startAt can't go below 0
       if (newStartAt < 0) {
-        newTrimStart -= newStartAt; // Push trimStart back
+        newTrimStart -= newStartAt;
         newStartAt = 0;
       }
 
-      // Collision: don't overlap with clip to the left
       const otherClips = clips.filter(c => c.id !== ds.id);
       for (const other of otherClips) {
         const otherEnd = other.startAt + (other.trimEnd - other.trimStart);
@@ -248,7 +265,6 @@ export default function Timeline() {
         }
       }
 
-      // Snapping for left edge
       if (snappingActive) {
         const snapT = getSnapThresholdSec();
         for (const other of otherClips) {
@@ -272,16 +288,11 @@ export default function Timeline() {
 
     } else if (ds.mode === 'trim-right') {
       // --- TRIM RIGHT ---
-      // Only trimEnd changes. startAt stays fixed.
       let newTrimEnd = ds.initialTrimEnd + timeDelta;
 
-      // Clamp: trimEnd can't go past source duration
       newTrimEnd = Math.min(newTrimEnd, ds.initialSourceDuration);
-
-      // Clamp: trimEnd can't go below trimStart + MIN_CLIP_DURATION
       newTrimEnd = Math.max(newTrimEnd, ds.initialTrimStart + MIN_CLIP_DURATION);
 
-      // Collision: don't overlap with clip to the right
       const newEndOnTimeline = ds.initialStartAt + (newTrimEnd - ds.initialTrimStart);
       const otherClips = clips.filter(c => c.id !== ds.id);
       for (const other of otherClips) {
@@ -290,7 +301,6 @@ export default function Timeline() {
         }
       }
 
-      // Snapping for right edge
       if (snappingActive) {
         const snapT = getSnapThresholdSec();
         const newEndTime = ds.initialStartAt + (newTrimEnd - ds.initialTrimStart);
@@ -315,8 +325,82 @@ export default function Timeline() {
     setIsSnapped(snapped);
   }, [clips, snappingActive, getSnapThresholdSec]);
 
-  // --- DRAG END ---
+  // --- AUTO-PANNING (EDGE SCROLL) LOGIC ---
+  const triggerUpdateForDrag = useCallback((clientX: number) => {
+    if (isScrubbing.current) {
+      handleScrub(clientX);
+    } else if (dragState.current.id) {
+      processDrag(clientX);
+    }
+  }, [handleScrub, processDrag]);
+
+  const stopAutoPanLoop = useCallback(() => {
+    autoPanActive.current = false;
+    if (autoPanFrame.current !== null) {
+      cancelAnimationFrame(autoPanFrame.current);
+      autoPanFrame.current = null;
+    }
+    lastClientX.current = null;
+  }, []);
+
+  const EDGE_ZONE = 50; // px
+  const MAX_PAN_SPEED = 25; // px per frame
+
+  const autoPanLoop = useCallback(() => {
+    if (!autoPanActive.current || lastClientX.current === null || !scrollContainerRef.current) {
+      autoPanFrame.current = null;
+      return;
+    }
+
+    const container = scrollContainerRef.current;
+    const rect = container.getBoundingClientRect();
+    const clientX = lastClientX.current;
+
+    let panAmount = 0;
+
+    // Move left if near left edge
+    if (clientX < rect.left + EDGE_ZONE) {
+      const distanceToEdge = Math.max(0, clientX - rect.left);
+      const intensity = 1 - (distanceToEdge / EDGE_ZONE);
+      panAmount = -MAX_PAN_SPEED * (intensity * intensity); // exponential curve
+    }
+    // Move right if near right edge
+    else if (clientX > rect.right - EDGE_ZONE) {
+      const distanceToEdge = Math.max(0, rect.right - clientX);
+      const intensity = 1 - (distanceToEdge / EDGE_ZONE);
+      panAmount = MAX_PAN_SPEED * (intensity * intensity); // exponential curve
+    }
+
+    if (panAmount !== 0) {
+      container.scrollLeft += panAmount;
+      // Re-trigger the active intent with updated scroll!
+      triggerUpdateForDrag(clientX);
+    }
+
+    autoPanFrame.current = requestAnimationFrame(autoPanLoop);
+  }, [triggerUpdateForDrag]);
+
+  const updateAutoPan = useCallback((clientX: number, isActive: boolean) => {
+    lastClientX.current = clientX;
+    
+    if (isActive) {
+      if (!autoPanActive.current) {
+        autoPanActive.current = true;
+        autoPanFrame.current = requestAnimationFrame(autoPanLoop);
+      }
+    } else {
+      stopAutoPanLoop();
+    }
+  }, [autoPanLoop, stopAutoPanLoop]);
+
+  // --- DRAG EVENT HANDLERS ---
+  const onDragMove = useCallback((e: React.PointerEvent) => {
+    processDrag(e.clientX);
+    updateAutoPan(e.clientX, true);
+  }, [processDrag, updateAutoPan]);
+
   const onDragEnd = useCallback((e: React.PointerEvent) => {
+    updateAutoPan(e.clientX, false);
     if (dragState.current.id) {
       try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
       dragState.current.id = null;
@@ -326,15 +410,7 @@ export default function Timeline() {
       setIsSnapped(false);
       setTrimmingSide(null);
     }
-  }, []);
-
-  // --- Scrubbing ---
-  const handleScrub = (e: React.MouseEvent | React.PointerEvent) => {
-    if (!trackRef.current) return;
-    const rect = trackRef.current.getBoundingClientRect();
-    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    setCurrentTime((x / rect.width) * duration);
-  };
+  }, [updateAutoPan]);
 
   // --- Blade Tool ---
   const handleBladeClick = (e: React.MouseEvent, clipId: string) => {
@@ -405,34 +481,36 @@ export default function Timeline() {
                  </span>
                )}
              </button>
-             <button 
-               onClick={() => setSnappingActive(!snappingActive)} 
+             <button
+               onClick={() => setSnappingActive(!snappingActive)}
                title={snappingActive ? 'Snapping Activo (10px)' : 'Snapping Desactivado'}
                className={`p-2 rounded-lg transition-all flex items-center justify-center ${snappingActive ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'}`}
              >
                <Magnet className="w-3.5 h-3.5" />
              </button>
           </span>
-          <div className="flex items-center gap-2 min-h-[20px]">
-             <div className="p-1 rounded-md bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
-               <Lightbulb className="w-3 h-3 text-amber-400" />
-             </div>
-             <AnimatePresence mode="wait">
-               <motion.span
-                 key={currentTip}
-                 initial={{ opacity: 0, y: 6 }}
-                 animate={{ opacity: 1, y: 0 }}
-                 exit={{ opacity: 0, y: -6 }}
-                 transition={{ duration: 0.3 }}
-                 className="text-zinc-500 text-xs leading-snug cursor-pointer hover:text-zinc-400 transition-colors"
-                 onClick={() => setCurrentTip(prev => (prev + 1) % TIPS_COUNT)}
-                 title={`Tip ${currentTip + 1}/${TIPS_COUNT}`}
-               >
-                 <span className="text-amber-400/70 font-semibold text-[10px] mr-1.5">{currentTip + 1}/{TIPS_COUNT}</span>
-                 {t(`tip_${currentTip + 1}`)}
-               </motion.span>
-             </AnimatePresence>
-           </div>
+          {showTips && (
+            <div className="flex items-center gap-2 min-h-[20px]">
+              <div className="p-1 rounded-md bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+                <Lightbulb className="w-3 h-3 text-amber-400" />
+              </div>
+              <AnimatePresence mode="wait">
+                <motion.span
+                  key={currentTip}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.3 }}
+                  className="text-zinc-500 text-xs leading-snug cursor-pointer hover:text-zinc-400 transition-colors"
+                  onClick={() => setCurrentTip(prev => (prev + 1) % TIPS_COUNT)}
+                  title={`Tip ${currentTip + 1}/${TIPS_COUNT}`}
+                >
+                  <span className="text-amber-400/70 font-semibold text-[10px] mr-1.5">{currentTip + 1}/{TIPS_COUNT}</span>
+                  {t(`tip_${currentTip + 1}`)}
+                </motion.span>
+              </AnimatePresence>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-3 mr-12">
           <span className="text-zinc-500 text-xs">{t('zoom')} ({timelineZoom.toFixed(1)}x)</span>
@@ -474,26 +552,61 @@ export default function Timeline() {
           <div 
             className="absolute top-0 left-0 right-0 h-8 z-40 hover:bg-white/[0.02] transition-colors border-b border-zinc-800/50"
             style={{ cursor: bladeMode ? 'crosshair' : 'col-resize' }}
-            onPointerDown={(e) => { if (!bladeMode) { e.currentTarget.setPointerCapture(e.pointerId); handleScrub(e); } }}
-            onPointerMove={(e) => { if (!bladeMode && e.buttons === 1) handleScrub(e); }}
+            onPointerDown={(e) => { 
+                if (!bladeMode) { 
+                   e.currentTarget.setPointerCapture(e.pointerId); 
+                   isScrubbing.current = true;
+                   handleScrub(e.clientX); 
+                   updateAutoPan(e.clientX, true);
+                } 
+            }}
+            onPointerMove={(e) => { 
+                if (!bladeMode && isScrubbing.current) { 
+                    handleScrub(e.clientX); 
+                    updateAutoPan(e.clientX, true);
+                } 
+            }}
+            onPointerUp={(e) => {
+                isScrubbing.current = false;
+                try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+                updateAutoPan(e.clientX, false);
+            }}
+            onPointerCancel={(e) => {
+                isScrubbing.current = false;
+                try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+                updateAutoPan(e.clientX, false);
+            }}
           >
             {duration > 0 && Array.from({ length: Math.ceil(duration) + 1 }).map((_, i) => {
                if (i > duration) return null;
-               const pxPerSec = (timelineZoom * 1000) / duration;
-               let majorStep = 1;
-               if (pxPerSec < 4) majorStep = 60;
-               else if (pxPerSec < 10) majorStep = 30;
-               else if (pxPerSec < 20) majorStep = 10;
-               else if (pxPerSec < 40) majorStep = 5;
-               const isMajor = i % majorStep === 0;
-               if (!isMajor && pxPerSec <= 3) return null;
+                const pxPerSec = (timelineZoom * 1000) / duration;
+                let majorStep = 1;
+
+                if (timelineTimeMode === 'minutes') {
+                  // In minutes mode, we want labels at 1:00, 2:00, or at most 0:30 increments
+                  if (pxPerSec < 2) majorStep = 300; // 5 min
+                  else if (pxPerSec < 5) majorStep = 120; // 2 min
+                  else if (pxPerSec < 15) majorStep = 60; // 1 min
+                  else majorStep = 30; // 30 sec
+                } else {
+                  // Seconds mode (legacy logic)
+                  if (pxPerSec < 4) majorStep = 60;
+                  else if (pxPerSec < 10) majorStep = 30;
+                  else if (pxPerSec < 20) majorStep = 10;
+                  else if (pxPerSec < 40) majorStep = 5;
+                }
+
+                const isMajor = i % majorStep === 0;
+                if (!isMajor && pxPerSec <= 3) return null;
                return (
                  <div key={i} className="absolute bottom-0 flex flex-col items-center -translate-x-1/2 pointer-events-none" style={{ left: `${(i / Math.max(duration, 0.1)) * 100}%` }}>
                    {isMajor ? (
                      <>
-                       <span className="text-[9px] text-zinc-500 font-mono select-none leading-none mb-0.5">
-                         {i >= 60 ? `${Math.floor(i / 60)}:${(i % 60).toString().padStart(2, '0')}` : `${i}s`}
-                       </span>
+                        {timelineTimeMode !== 'hidden' && (
+                          <span className="text-[9px] text-zinc-500 font-mono select-none leading-none mb-0.5">
+                            {formatTime(i)}
+                          </span>
+                        )}
                        <div className="w-px h-2 bg-zinc-600" />
                      </>
                    ) : <div className="w-px h-1 bg-zinc-700/50" />}
@@ -554,15 +667,64 @@ export default function Timeline() {
                           onPointerUp={onDragEnd}
                           onPointerCancel={onDragEnd}
                         >
+                          {/* Thumbnails strip */}
+                          {thumbnails.length > 0 && (
+                            <div 
+                              className="absolute top-0 bottom-0 pointer-events-none flex overflow-hidden opacity-60"
+                              style={{
+                                width: `${(clip.sourceDuration / clipDur) * 100}%`,
+                                left: `${-(clip.trimStart / clipDur) * 100}%`
+                              }}
+                            >
+                              {(() => {
+                                // Dynamically calculate how many thumbnails to render based on physical zoom width
+                                // to maintain a 16:9 aspect ratio and avoid the "barcode" / squished effect.
+                                const trackW = trackRef.current ? trackRef.current.getBoundingClientRect().width : 1000 * timelineZoom;
+                                const pxPerSec = duration > 0 ? trackW / duration : 100;
+                                const sourceWidthPx = clip.sourceDuration * pxPerSec;
+                                
+                                const THUMB_WIDTH = 80; // Fixed pixel width for 16:9 look
+                                const numWanted = Math.max(1, Math.ceil(sourceWidthPx / THUMB_WIDTH));
+                                
+                                const elements = [];
+                                for (let i = 0; i < numWanted; i++) {
+                                  // Time this exact thumbnail box represents logically
+                                  const boxTimeSecs = (i * THUMB_WIDTH) / Math.max(0.1, pxPerSec);
+                                  
+                                  // Map this time to the closest available pre-calculated thumbnail
+                                  const thumbIndex = Math.min(
+                                    thumbnails.length - 1, 
+                                    Math.floor((boxTimeSecs / clip.sourceDuration) * thumbnails.length)
+                                  );
+                                  const src = thumbnails[Math.max(0, thumbIndex)] || '';
+                                  
+                                  elements.push(
+                                    <div 
+                                      key={i} 
+                                      className="h-full shrink-0 border-r border-black/20"
+                                      style={{ 
+                                        width: `${THUMB_WIDTH}px`,
+                                        backgroundImage: `url(${src})`,
+                                        backgroundSize: 'cover',
+                                        backgroundPosition: 'center' 
+                                      }}
+                                    />
+                                  );
+                                }
+                                return elements;
+                              })()}
+                            </div>
+                          )}
+
                           {/* Clip Info */}
-                          <div className="px-3 py-1 flex flex-col gap-0.5 select-none pointer-events-none">
+                          <div className="px-3 py-1.5 flex flex-col gap-0.5 select-none pointer-events-none relative z-10 bg-gradient-to-b from-black/60 to-transparent">
                             <div className="flex items-center gap-1.5">
-                              <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: color.solid }} />
-                              <span className="text-[10px] font-bold text-white/80 uppercase tracking-tighter truncate">
+                              <div className="w-1.5 h-1.5 rounded-full shrink-0 shadow-sm" style={{ backgroundColor: color.solid }} />
+                              <span className="text-[10px] font-bold text-white uppercase tracking-tighter truncate" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
                                 Clip {index + 1}
                               </span>
                             </div>
-                            <span className="text-[9px] text-white/35 font-mono">
+                            <span className="text-[9px] text-white/80 font-mono" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
                               {formatTime(clip.trimStart)} → {formatTime(clip.trimEnd)} ({formatTime(clipDur)})
                             </span>
                           </div>

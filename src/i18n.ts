@@ -18,6 +18,9 @@ i18n
       en: {
         translation: {
           app_name: "FG Repro",
+          loop_enable: "Enable Loop",
+          loop_disable: "Disable Loop",
+          loop: "Loop",
           change_video: "Change Video",
           resolution: "Resolution",
           drop_here: "Drop your video here",
@@ -94,6 +97,15 @@ i18n
           tip_9: "Visit the Configuration in the little gear ⚙️ of the Inspector.",
           tip_10: "Use vertical resolution (e.g. 1080x1920) for social media.",
           tip_11: "Read the instructions in the Tutorial.",
+          timeline_time_mode: "Time Display",
+          seconds: "Seconds",
+          minutes: "Minutes",
+          hidden: "Hidden",
+          restart: "Restart",
+          show_tips: "Show Tips",
+          close_app: "Close Application",
+          minimize_app: "Minimize",
+          window_mode: "Window Mode"
         }
       },
       es: {
@@ -175,6 +187,13 @@ i18n
           tip_9: "Visitá la Configuración en la ruedita ⚙️ del Inspector.",
           tip_10: "Podés usar la resolución vertical para las redes sociales.",
           tip_11: "Lee las instrucciones en el Tutorial para aprovechar al máximo la aplicación.",
+          timeline_time_mode: "Modo de tiempo",
+          seconds: "Segundos",
+          minutes: "Minutos",
+          hidden: "Oculto",
+          close_app: "Cerrar Aplicación",
+          minimize_app: "Minimizar",
+          window_mode: "Modo Ventana"
         }
       },
       pt: {
@@ -256,6 +275,13 @@ i18n
           tip_9: "Visite a Configuração na engrenagem ⚙️ do Inspetor.",
           tip_10: "Use a resolução vertical para as redes sociais.",
           tip_11: "Leia as instruções no Tutorial.",
+          timeline_time_mode: "Modo de tempo",
+          seconds: "Segundos",
+          minutes: "Minutos",
+          hidden: "Oculto",
+          close_app: "Fechar Aplicativo",
+          minimize_app: "Minimizar",
+          window_mode: "Modo Janela"
         }
       }
     }

@@ -1,40 +1,64 @@
-"use client";
 
 import { useRef, useEffect, useCallback } from "react";
 import { useTimeline } from "@/hooks/useTimeline";
 import { motion, AnimatePresence } from "framer-motion";
-import dynamic from "next/dynamic";
-import { useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Minimize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2 } from "lucide-react";
+import React, { useState } from "react";
+import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Minimize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2, RotateCcw, X, Maximize2, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-const ReactPlayer = dynamic(() => import("react-player"), { ssr: false });
+const ReactPlayer = React.lazy(() => import("react-player"));
 
 export default function Canvas() {
   const { t } = useTranslation();
-  const { videoUrl, clips, zoom, posX, posY, playing, setPlaying, currentTime, setCurrentTime, setDuration, duration, setVideoFile, resolution, canvasScale, setCanvasScale, isPlayerMode, setPlayerMode } = useTimeline();
+  const { 
+    videoUrl, clips, zoom, posX, posY, playing, setPlaying, 
+    currentTime, setCurrentTime, duration, setDuration, 
+    setVideoFile, resolution, canvasScale, setCanvasScale, videoPath,
+    isFullscreen, setIsFullscreen 
+  } = useTimeline();
   const playerRef = useRef<any>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [isHovering, setIsHovering] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
   const [fsIdle, setFsIdle] = useState(false);
   const [fsFreeMode, setFsFreeMode] = useState(false);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fullscreen toggle
-  const toggleFullscreen = useCallback(() => {
-    if (!canvasContainerRef.current) return;
-    if (!document.fullscreenElement) {
-      canvasContainerRef.current.requestFullscreen().catch(() => {});
-    } else {
-      document.exitFullscreen().catch(() => {});
+  // Fullscreen toggle (now global)
+  // Native Fullscreen toggle using Tauri API
+  // Native Fullscreen toggle using Tauri API
+  const toggleFullscreenNative = useCallback(async () => {
+    try {
+      const { appWindow } = await import('@tauri-apps/api/window');
+      const isCurrentlyFS = await appWindow.isFullscreen();
+      
+      if (!isCurrentlyFS) {
+        // Hardened sequence for Windows: Hide decorations -> Maximize -> Fullscreen
+        await appWindow.setDecorations(false);
+        await appWindow.maximize();
+        await appWindow.setFullscreen(true);
+        setIsFullscreen(true);
+      } else {
+        // Exit native FS
+        await appWindow.setFullscreen(false);
+        await appWindow.setDecorations(true);
+        setIsFullscreen(false);
+      }
+    } catch (err) {
+      console.error("Native fullscreen toggle failed:", err);
+      // Fallback to browser fullscreen if Tauri fails
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else {
+        document.exitFullscreen().catch(() => {});
+      }
     }
-  }, []);
+  }, [setIsFullscreen]);
 
-  // Listen for fullscreen changes
+  // Listen for fullscreen and maximize changes
   useEffect(() => {
     const handler = () => {
       const fs = !!document.fullscreenElement;
@@ -46,8 +70,50 @@ export default function Canvas() {
       }
     };
     document.addEventListener('fullscreenchange', handler);
-    return () => document.removeEventListener('fullscreenchange', handler);
-  }, []);
+
+    // Tauri specific window listeners
+    const setupTauriListeners = async () => {
+      let unlistenResize: () => void;
+      try {
+        const { appWindow } = await import('@tauri-apps/api/window');
+        setIsMaximized(await appWindow.isMaximized());
+        
+        // Listen for window resize to sync fullscreen/maximized state
+        unlistenResize = await appWindow.onResized(async () => {
+          setIsMaximized(await appWindow.isMaximized());
+          const fs = await appWindow.isFullscreen();
+          setIsFullscreen(fs);
+          
+          if (!fs) {
+            // Restore decorations when exiting FS
+            await appWindow.setDecorations(true);
+            setFsIdle(false);
+            setFsFreeMode(false);
+            if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+          } else {
+            // Ensure decorations stay hidden in FS
+            await appWindow.setDecorations(false);
+          }
+        });
+
+        // Sync initial native fullscreen state
+        const initialFs = await appWindow.isFullscreen();
+        setIsFullscreen(initialFs);
+
+        return () => {
+          if (unlistenResize) unlistenResize();
+        };
+      } catch (err) {
+        console.error("Tauri window listeners failed:", err);
+      }
+    };
+    const cleanupTauri = setupTauriListeners();
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handler);
+      cleanupTauri.then(cleanup => cleanup?.());
+    };
+  }, [setIsFullscreen]);
 
   // Fullscreen idle timer: hide controls after 4s of no mouse movement
   const resetIdleTimer = useCallback(() => {
@@ -89,6 +155,17 @@ export default function Canvas() {
     };
     loadSample();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-Fullscreen on video load from OS path
+  const lastLoadPathRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (videoPath && videoPath !== lastLoadPathRef.current) {
+      lastLoadPathRef.current = videoPath;
+      if (!isFullscreen && toggleFullscreenNative) {
+        toggleFullscreenNative();
+      }
+    }
+  }, [videoPath, isFullscreen, toggleFullscreenNative]);
   
   // Keep external scrubs synchronized
   useEffect(() => {
@@ -104,21 +181,37 @@ export default function Canvas() {
       // We are inside a clip. Calculate local time in the source video
       const localTime = activeClip.trimStart + (currentTime - activeClip.startAt);
       
-      if (Math.abs(playerRef.current.getCurrentTime() - localTime) > 0.5) {
+      const currentInternalTime = playerRef.current.getCurrentTime();
+      if (Math.abs(currentInternalTime - localTime) > 0.5) {
         playerRef.current.seekTo(localTime, "seconds");
-      }
-      
-      // Ensure we are playing if we should be
-      if (playing && !playerRef.current.getInternalPlayer()?.paused === false) {
-         // Some players need a forced play here if they paused at end of a previous clip
       }
     } else {
       // We are in a gap between clips, or past the end
       if (playing) {
-         setPlaying(false);
+         const contentDuration = clips.reduce((max, c) => Math.max(max, c.startAt + (c.trimEnd - c.trimStart)), 0);
+         
+         if (currentTime >= contentDuration) {
+           setPlaying(false);
+         }
       }
     }
   }, [currentTime, clips, playing, setPlaying]);
+
+  // Force actual pause on internal player to prevent ghost audio
+  useEffect(() => {
+    const internalPlayer = playerRef.current?.getInternalPlayer();
+    if (!internalPlayer) return;
+
+    if (playing) {
+      // Small delay to ensure seek has settled if we just started
+      const t = setTimeout(() => {
+        if (internalPlayer.paused) internalPlayer.play?.().catch(() => {});
+      }, 50);
+      return () => clearTimeout(t);
+    } else {
+      if (!internalPlayer.paused) internalPlayer.pause?.();
+    }
+  }, [playing, videoUrl]);
 
   const handleProgress = useCallback((state: any) => {
     if (!playing || clips.length === 0) return;
@@ -141,6 +234,9 @@ export default function Canvas() {
       } else {
          setCurrentTime(currentTime + 0.1); // Fallback tick
       }
+    } else {
+      // In a gap or past the end, manually tick forward if playing
+      setCurrentTime(currentTime + 0.1);
     }
   }, [playing, clips, currentTime, setCurrentTime]);
 
@@ -148,7 +244,7 @@ export default function Canvas() {
   const translateX = (posX - 50) * -1;
   const translateY = (posY - 50) * -1;
 
-  // In fullscreen fixed mode: ignore transforms, video fills screen
+  // In fullscreen mode: ignore transforms, video fills screen (unless fsFreeMode is on).
   const isFixedMode = isFullscreen && !fsFreeMode;
   const effectiveScale = isFixedMode ? 1 : scale;
   const effectiveTranslateX = isFixedMode ? 0 : translateX;
@@ -208,8 +304,10 @@ export default function Canvas() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onWheel={handleWheel}
-      onDoubleClick={toggleFullscreen}
+      onDoubleClick={toggleFullscreenNative}
       onMouseMove={isFullscreen ? resetIdleTimer : undefined}
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => setIsHovering(false)}
       style={{ cursor: isFullscreen && fsIdle ? 'none' : undefined }}
     >
       <div className="w-full h-full relative" style={{ containerType: 'size' }}>
@@ -217,8 +315,6 @@ export default function Canvas() {
           {videoUrl ? (
           <div 
             className={`w-full h-full relative flex flex-col items-center justify-center ${isFixedMode ? 'p-0' : 'p-[2vmin]'}`}
-            onMouseEnter={() => setIsHovering(true)}
-            onMouseLeave={() => setIsHovering(false)}
           >
             {/* The Actual "Screen" / Video Boundary */}
             <motion.div 
@@ -246,38 +342,112 @@ export default function Canvas() {
                 transition={{ type: "spring", stiffness: 300, damping: 30 }}
                 className="w-full h-full flex items-center justify-center origin-center"
               >
-                <ReactPlayer
-                  ref={playerRef}
-                  url={videoUrl}
-                  width="100%"
-                  height="100%"
-                  playing={playing}
-                  volume={volume}
-                  muted={muted}
-                  onPlay={() => setPlaying(true)}
-                  onPause={() => setPlaying(false)}
-                  onDuration={(d: number) => setDuration(d)}
-                  onProgress={handleProgress}
-                  progressInterval={100}
-                  style={{ objectFit: isFixedMode ? 'contain' : 'contain' }}
-                />
+                <React.Suspense fallback={<div className="w-full h-full bg-black/50 flex items-center justify-center animate-pulse"><MonitorPlay className="w-12 h-12 text-white/20" /></div>}>
+                  <ReactPlayer
+                    ref={playerRef}
+                    url={videoUrl}
+                    width="100%"
+                    height="100%"
+                    playing={playing}
+                    volume={volume}
+                    muted={muted}
+                    onPlay={() => setPlaying(true)}
+                    onPause={() => {
+                      // Only trigger pause if we weren't already paused (prevents loops)
+                      if (playing) setPlaying(false);
+                    }}
+                    onDuration={(d: number) => setDuration(d)}
+                    onProgress={handleProgress}
+                    progressInterval={100}
+                    style={{ objectFit: isFixedMode ? 'contain' : 'contain' }}
+                  />
+                </React.Suspense>
               </motion.div>
             </motion.div>
 
-            {/* Fullscreen Mode Toggle: Fixed / Free (top-left, only in fullscreen) */}
+            {/* Fullscreen Mode Toggle & Window Controls (top-right) */}
             <AnimatePresence>
-              {isFullscreen && showControls && (
-                <motion.button
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -10 }}
-                  onClick={(e) => { e.stopPropagation(); setFsFreeMode(!fsFreeMode); }}
-                  onDoubleClick={(e) => e.stopPropagation()}
-                  className="absolute top-3 left-3 z-50 flex items-center gap-2 bg-black/60 backdrop-blur-sm border border-white/10 rounded-md px-3 py-2 text-white/70 hover:text-white hover:bg-black/80 transition-all text-xs font-medium"
-                >
-                  {fsFreeMode ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-                  <span>{fsFreeMode ? 'Libre' : 'Fijo'}</span>
-                </motion.button>
+              {showControls && (
+                <div className="absolute top-4 sm:top-6 right-4 sm:right-6 left-4 sm:left-6 z-50 flex items-center justify-between pointer-events-none">
+                  {/* Left Controls (Fullscreen only) */}
+                  <div className="flex items-center gap-2 pointer-events-auto">
+                    {isFullscreen && (
+                      <motion.button
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -10 }}
+                        onClick={(e) => { e.stopPropagation(); setFsFreeMode(!fsFreeMode); }}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                        className="flex items-center gap-2 bg-black/60 backdrop-blur-md border border-white/10 rounded-md px-3 py-2 text-white/70 hover:text-white hover:bg-black/80 transition-all text-xs font-medium shadow-xl"
+                      >
+                        {fsFreeMode ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                        <span>{fsFreeMode ? 'Libre' : 'Fijo'}</span>
+                      </motion.button>
+                    )}
+                  </div>
+
+                  {/* Right Window Controls (Minimize, Window Mode, Close) */}
+                  {isFullscreen && (
+                    <motion.div
+                      initial={{ opacity: 0, x: 10, y: -10 }}
+                      animate={{ opacity: 1, x: 0, y: 0 }}
+                      exit={{ opacity: 0, x: 10, y: -10 }}
+                      className="flex items-center gap-2 pointer-events-auto bg-black/20 p-1 rounded-full backdrop-blur-sm border border-white/5"
+                    >
+                      {/* Window Mode Toggle */}
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            const { appWindow } = await import('@tauri-apps/api/window');
+                            
+                            // 1. If browser-level element fullscreen is active, exit it
+                            if (document.fullscreenElement) {
+                              await document.exitFullscreen();
+                            } 
+                            // 2. If Tauri window is in native fullscreen, exit it
+                            else if (await appWindow.isFullscreen()) {
+                              await appWindow.setFullscreen(false);
+                            } 
+                            // 3. Otherwise toggle maximizing the window
+                            else {
+                              await appWindow.toggleMaximize();
+                            }
+                            
+                            // Sync state
+                            setIsMaximized(await appWindow.isMaximized());
+                          } catch (err) {
+                            console.error("Failed to toggle window mode:", err);
+                          }
+                        }}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                        className="p-2 sm:p-2.5 bg-black/40 hover:bg-zinc-700/80 backdrop-blur-md rounded-full text-white/70 hover:text-white transition-all shadow-xl border border-white/10 active:scale-90"
+                        title={isMaximized ? 'Restaurar' : t('window_mode')}
+                      >
+                        {isMaximized ? <Copy className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
+                      </button>
+
+                      {/* Close Button */}
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            const { appWindow } = await import('@tauri-apps/api/window');
+                            await appWindow.close();
+                          } catch (err) {
+                            console.error("Failed to close window:", err);
+                            window.close();
+                          }
+                        }}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                        className="p-2 sm:p-2.5 bg-black/40 hover:bg-red-500/80 backdrop-blur-md rounded-full text-white/70 hover:text-white transition-all shadow-xl border border-white/10 group active:scale-90"
+                        title={t('close_app')}
+                      >
+                        <X className="w-3.5 h-3.5 sm:w-4 sm:h-4 transition-transform group-hover:rotate-90" />
+                      </button>
+                    </motion.div>
+                  )}
+                </div>
               )}
             </AnimatePresence>
             
@@ -337,77 +507,91 @@ export default function Canvas() {
                         setVolume(v);
                         if (v > 0 && muted) setMuted(false);
                       }}
-                      className="w-20 h-1 accent-white appearance-none bg-white/20 rounded-full cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
                     />
                   </div>
 
-                  {/* Mode Toggle Button */}
+                  {/* Restart Button */}
                   <button
-                    onClick={(e) => { e.stopPropagation(); setPlayerMode(!isPlayerMode); }}
-                    onDoubleClick={(e) => e.stopPropagation()}
-                    className="h-9 px-3 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 text-white/70 hover:text-white hover:bg-black/80 flex items-center justify-center transition-all min-w-9"
-                    title={isPlayerMode ? 'Switch to Editor Mode' : 'Switch to Player Mode'}
-                  >
-                    {isPlayerMode ? <Settings2 className="w-4 h-4 sm:mr-2" /> : <MonitorPlay className="w-4 h-4 sm:mr-2" />}
-                    <span className="hidden sm:inline text-xs font-medium">
-                      {isPlayerMode ? 'Editor' : 'Player'}
-                    </span>
-                  </button>
-
-                  {/* Fullscreen Button */}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      setCurrentTime(0);
+                      setPlaying(true);
+                    }}
                     onDoubleClick={(e) => e.stopPropagation()}
                     className="w-9 h-9 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 text-white/70 hover:text-white hover:bg-black/80 flex items-center justify-center transition-all shrink-0"
-                    title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                    title={t('restart')}
                   >
-                    {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+                    <RotateCcw className="w-4 h-4" />
+                  </button>
+
+                  {/* Action Button (Fullscreen in Editor, Edit in Player) */}
+                  <button
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      toggleFullscreenNative(); 
+                    }}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    className="h-9 px-4 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 text-white/70 hover:text-white hover:bg-black/80 flex items-center justify-center transition-all ml-1"
+                    title={isFullscreen ? 'Editar' : 'Pantalla Completa'}
+                  >
+                    {isFullscreen ? <Settings2 className="w-4 h-4 sm:mr-2" /> : <Maximize className="w-4 h-4 sm:mr-2" />}
+                    <span className="hidden sm:inline text-xs font-medium">
+                      {isFullscreen ? 'Editar' : 'Pantalla Completa'}
+                    </span>
                   </button>
                 </motion.div>
               )}
             </AnimatePresence>
 
-            {/* Fullscreen Scrubber */}
+            {/* Player Scrubber */}
             <AnimatePresence>
               {isFullscreen && showControls && (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 20 }}
-                  className="absolute bottom-0 left-0 right-0 px-8 pb-32 pt-16 bg-gradient-to-t from-black/80 to-transparent z-[45]"
+                  className={`absolute bottom-0 left-0 right-0 px-8 ${isFullscreen ? 'pb-32' : 'pb-40'} pt-16 bg-gradient-to-t from-black/80 to-transparent z-[45]`}
                   onPointerDown={(e) => e.stopPropagation()}
                 >
-                  <div 
-                    className="w-full h-1.5 bg-white/30 rounded-full cursor-pointer group relative hover:h-2 transition-all"
-                    onPointerDown={(e) => {
-                       e.stopPropagation();
-                       const el = e.currentTarget;
-                       const updateTime = (clientEx: number) => {
-                         const rect = el.getBoundingClientRect();
-                         const percent = Math.max(0, Math.min(1, (clientEx - rect.left) / rect.width));
-                         setCurrentTime(percent * duration);
-                       };
-                       updateTime(e.clientX);
-                       
-                       const onMove = (me: PointerEvent) => {
-                          me.preventDefault();
-                          updateTime(me.clientX);
-                       };
-                       const onUp = () => {
-                         window.removeEventListener('pointermove', onMove);
-                         window.removeEventListener('pointerup', onUp);
-                       };
-                       window.addEventListener('pointermove', onMove);
-                       window.addEventListener('pointerup', onUp);
-                    }}
-                  >
-                    <div 
-                      className="h-full bg-blue-500 rounded-full relative pointer-events-none"
-                      style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
-                    >
-                      <div className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow scale-0 group-hover:scale-100 transition-transform -mr-2" />
-                    </div>
-                  </div>
+                  {(() => {
+                    const contentDuration = clips.length > 0 
+                      ? Math.max(...clips.map(c => c.startAt + (c.trimEnd - c.trimStart)))
+                      : duration;
+                    
+                    return (
+                      <div 
+                        className="w-full h-1.5 bg-white/30 rounded-full cursor-pointer group relative hover:h-2 transition-all"
+                        onPointerDown={(e) => {
+                           e.stopPropagation();
+                           const el = e.currentTarget;
+                           const updateTime = (clientEx: number) => {
+                             const rect = el.getBoundingClientRect();
+                             const percent = Math.max(0, Math.min(1, (clientEx - rect.left) / rect.width));
+                             setCurrentTime(percent * contentDuration);
+                           };
+                           updateTime(e.clientX);
+                           
+                           const onMove = (me: PointerEvent) => {
+                              me.preventDefault();
+                              updateTime(me.clientX);
+                           };
+                           const onUp = () => {
+                             window.removeEventListener('pointermove', onMove);
+                             window.removeEventListener('pointerup', onUp);
+                           };
+                           window.addEventListener('pointermove', onMove);
+                           window.addEventListener('pointerup', onUp);
+                        }}
+                      >
+                        <div 
+                          className="h-full bg-blue-500 rounded-full relative pointer-events-none"
+                          style={{ width: `${contentDuration > 0 ? (Math.min(currentTime, contentDuration) / contentDuration) * 100 : 0}%` }}
+                        >
+                          <div className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow scale-0 group-hover:scale-100 transition-transform -mr-2" />
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </motion.div>
               )}
             </AnimatePresence>

@@ -1,4 +1,3 @@
-"use client";
 
 import { useTimeline } from "@/hooks/useTimeline";
 import { useFFmpeg } from "@/hooks/useFFmpeg";
@@ -13,7 +12,7 @@ import { useTranslation } from "react-i18next";
 
 export default function ExportModal() {
   const { t } = useTranslation();
-  const { videoFile, clips, zoom, posX, posY, resolution } = useTimeline();
+  const { videoFile, videoPath, clips, zoom, posX, posY, resolution } = useTimeline();
   const { loaded, loading, progress, renderVideo } = useFFmpeg();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -35,26 +34,53 @@ export default function ExportModal() {
   };
 
   const handleRender = async () => {
-    if (!videoFile || !loaded) return;
+    if ((!videoFile && !videoPath) || !loaded) return;
     setRendering(true);
     setResultUrl(null);
 
-    const tempVideo = document.createElement("video");
-    tempVideo.src = URL.createObjectURL(videoFile);
-    await new Promise((resolve) => {
-      tempVideo.onloadedmetadata = () => resolve(true);
-    });
+    let inputData: File | Uint8Array;
+    let width = 0;
+    let height = 0;
 
     try {
+      if (videoFile) {
+        inputData = videoFile;
+        const tempVideo = document.createElement("video");
+        tempVideo.src = URL.createObjectURL(videoFile);
+        await new Promise((resolve) => {
+          tempVideo.onloadedmetadata = () => resolve(true);
+          tempVideo.onerror = () => resolve(false);
+        });
+        width = tempVideo.videoWidth;
+        height = tempVideo.videoHeight;
+      } else if (videoPath) {
+        const { readBinaryFile } = await import('@tauri-apps/api/fs');
+        inputData = await readBinaryFile(videoPath);
+        
+        const blob = new Blob([inputData as any]);
+        const url = URL.createObjectURL(blob);
+        const tempVideo = document.createElement("video");
+        tempVideo.src = url;
+        await new Promise((resolve) => {
+          tempVideo.onloadedmetadata = () => resolve(true);
+          tempVideo.onerror = () => resolve(false);
+        });
+        width = tempVideo.videoWidth;
+        height = tempVideo.videoHeight;
+        URL.revokeObjectURL(url);
+      } else {
+        return;
+      }
+
       const url = await renderVideo(
-        videoFile,
+        inputData,
         clips,
         zoom,
         posX,
         posY,
         format,
-        tempVideo.videoWidth,
-        tempVideo.videoHeight,
+        width,
+        height,
         resolution
       );
       setResultUrl(url);
@@ -117,7 +143,7 @@ export default function ExportModal() {
       <Button 
         variant="default" 
         onClick={() => setIsOpen(true)}
-        disabled={!videoFile || loading}
+        disabled={(!videoFile && !videoPath) || loading}
         className="font-semibold shadow-lg transition-transform hover:scale-105 active:scale-95 bg-blue-600 hover:bg-blue-700 text-white"
       >
         <span className="w-4 h-4 mr-2 inline-flex items-center justify-center">

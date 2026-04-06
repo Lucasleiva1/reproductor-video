@@ -17,7 +17,7 @@ export function useFFmpeg() {
 
   const load = async () => {
     setLoading(true);
-    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+    const baseURL = "/ffmpeg";
     const ffmpeg = ffmpegRef.current;
     
     ffmpeg.on("log", ({ message }: any) => {
@@ -43,7 +43,7 @@ export function useFFmpeg() {
   };
 
   const renderVideo = async (
-    videoFile: File,
+    videoFileOrData: File | Uint8Array,
     clips: Clip[], // Replaced startTime/endTime with clips array
     zoom: number,
     posX: number,
@@ -59,7 +59,7 @@ export function useFFmpeg() {
     const inputName = "input.mp4";
     const finalOutputName = `output.${format.startsWith("mp4") ? "mp4" : "mp3"}`;
 
-    await ffmpeg.writeFile(inputName, await fetchFile(videoFile));
+    await ffmpeg.writeFile(inputName, await fetchFile(videoFileOrData instanceof Uint8Array ? new Blob([videoFileOrData as any]) : videoFileOrData));
 
     const targetW = resolution.w;
     const targetH = resolution.h;
@@ -192,6 +192,20 @@ export function useFFmpeg() {
     const data = await ffmpeg.readFile(finalOutputName);
     const blob = new Blob([data], { type: format === "mp3" ? "audio/mpeg" : "video/mp4" });
     const url = URL.createObjectURL(blob);
+    
+    // --- MEMORY CLEANUP OPTIMIZATION ---
+    // Delete all virtual files to prevent RAM usage from ballooning on consecutive exports
+    try {
+        await ffmpeg.deleteFile(inputName);
+        await ffmpeg.deleteFile("concat.txt");
+        await ffmpeg.deleteFile(finalOutputName);
+        for (const segment of segmentNames) {
+            await ffmpeg.deleteFile(segment);
+        }
+        console.log("Memoria RAM limpiada con éxito. Listo para la próxima exportación.");
+    } catch (cleanupError) {
+        console.warn("Advertencia: No se pudo limpiar alguna porción de memoria", cleanupError);
+    }
     
     // Provide blob URL
     return url;

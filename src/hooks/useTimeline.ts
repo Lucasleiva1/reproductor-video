@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { generateThumbnails } from "@/utils/thumbnailGenerator";
 
 export type Resolution = { w: number; h: number; name: string };
 export const RESOLUTIONS: Resolution[] = [
@@ -22,6 +23,7 @@ export interface Clip {
 interface TimelineState {
   videoFile: File | null;
   videoUrl: string | null;
+  videoPath: string | null;
   duration: number; // Total timeline duration (max startAt + trimEnd - trimStart)
   currentTime: number;
   clips: Clip[];
@@ -40,6 +42,7 @@ interface TimelineState {
   redo: () => void;
 
   setVideoFile: (file: File | null, url: string | null) => void;
+  loadVideoByPath: (path: string, autoplay?: boolean) => Promise<void>;
   setDuration: (duration: number) => void;
   setCurrentTime: (time: number) => void;
   setClips: (clips: Clip[] | ((prev: Clip[]) => Clip[])) => void;
@@ -53,8 +56,6 @@ interface TimelineState {
   setPlaying: (playing: boolean) => void;
   setResolution: (res: Resolution) => void;
   resetTransform: () => void;
-  isPlayerMode: boolean;
-  setPlayerMode: (mode: boolean) => void;
 
   // Header visibility toggles
   headerShowLang: boolean;
@@ -71,16 +72,23 @@ interface TimelineState {
   // Blade mode limit: 0 = unlimited, 1 = one cut, 2 = two cuts
   bladeModeLimit: number;
   setBladeModeLimit: (v: number) => void;
+
+
+  // Timeline time display mode: 'seconds', 'minutes', 'hidden'
+  timelineTimeMode: 'seconds' | 'minutes' | 'hidden';
+  setTimelineTimeMode: (v: 'seconds' | 'minutes' | 'hidden') => void;
+  showTips: boolean;
+  setShowTips: (v: boolean) => void;
+  isFullscreen: boolean;
+  setIsFullscreen: (v: boolean) => void;
+
+  thumbnails: string[];
+  isGeneratingThumbnails: boolean;
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 export const useTimeline = create<TimelineState>((set, get) => ({
-  isPlayerMode: typeof window !== 'undefined' ? (localStorage.getItem('defaultMode') === 'player') : false,
-  setPlayerMode: (mode) => {
-    set({ isPlayerMode: mode });
-  },
-
   // Header visibility (default all true)
   headerShowLang: typeof window !== 'undefined' ? localStorage.getItem('headerShowLang') !== 'false' : true,
   headerShowRes: typeof window !== 'undefined' ? localStorage.getItem('headerShowRes') !== 'false' : true,
@@ -99,6 +107,7 @@ export const useTimeline = create<TimelineState>((set, get) => ({
 
   videoFile: null,
   videoUrl: null,
+  videoPath: null,
   duration: 0,
   currentTime: 0,
   clips: [],
@@ -108,6 +117,22 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   posY: 50, // 50 = center
   playing: false,
   resolution: RESOLUTIONS[2],
+
+  timelineTimeMode: typeof window !== 'undefined' ? (localStorage.getItem('timelineTimeMode') as any || 'seconds') : 'seconds',
+  setTimelineTimeMode: (v) => { 
+    if (typeof window !== 'undefined') localStorage.setItem('timelineTimeMode', v); 
+    set({ timelineTimeMode: v }); 
+  },
+  showTips: typeof window !== 'undefined' ? localStorage.getItem('showTips') !== 'false' : true,
+  setShowTips: (v) => {
+    if (typeof window !== 'undefined') localStorage.setItem('showTips', String(v));
+    set({ showTips: v });
+  },
+  isFullscreen: false,
+  setIsFullscreen: (v) => set({ isFullscreen: v }),
+
+  thumbnails: [],
+  isGeneratingThumbnails: false,
 
   past: [],
   future: [],
@@ -153,17 +178,40 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   setVideoFile: (file, url) => {
     // When a new file is loaded, create an initial clip right at 0s.
     // We don't know the exact duration yet, wait for setDuration to update it.
-    set({ 
+    set(() => ({ 
       videoFile: file, 
       videoUrl: url, 
-      playing: false,
+      videoPath: null, // Clear path if we have a File object
       currentTime: 0,
-      clips: [] // reset clips until we know the duration
-    });
+      clips: [], // reset clips until we know the duration
+      playing: false,
+      thumbnails: [],
+      isGeneratingThumbnails: false,
+    }));
+  },
+  
+  loadVideoByPath: async (path, autoplay = false) => {
+    try {
+      const { convertFileSrc } = await import('@tauri-apps/api/tauri');
+      const url = convertFileSrc(path);
+      // We don't have a File object when loading via path, but ReactPlayer only needs the URL
+      set(() => ({
+        videoFile: null,
+        videoUrl: url,
+        videoPath: path,
+        currentTime: 0,
+        clips: [],
+        playing: autoplay,
+        thumbnails: [],
+        isGeneratingThumbnails: false
+      }));
+    } catch (err) {
+      console.error("Failed to load video by path:", err);
+    }
   },
   
   setDuration: (duration) => {
-    const { videoUrl, clips } = get();
+    const { videoUrl, clips, thumbnails, isGeneratingThumbnails } = get();
     // If we just loaded a video and don't have clips, create the first main clip spanning the whole video.
     if (clips.length === 0 && videoUrl) {
       set({
@@ -178,6 +226,25 @@ export const useTimeline = create<TimelineState>((set, get) => ({
           trimEnd: duration
         }]
       });
+
+      if (duration > 0 && !isGeneratingThumbnails && thumbnails.length === 0) {
+        set({ isGeneratingThumbnails: true });
+        generateThumbnails({
+          videoUrl,
+          duration,
+          maxThumbnails: 60, // Sufficient for wide screens
+          onThumbnail: (index, _total, dataUrl) => {
+            set((state) => {
+              // Replace entire array with progressive push to avoid mutating references safely
+              const nextThumbnails = [...state.thumbnails];
+              nextThumbnails[index] = dataUrl;
+              return { thumbnails: nextThumbnails };
+            });
+          }
+        }).finally(() => {
+          set({ isGeneratingThumbnails: false });
+        });
+      }
     } else {
       // If we are dynamically computing timeline duration based on clips
       set({ duration });
@@ -247,7 +314,10 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   setCanvasScale: (canvasScale) => set({ canvasScale }),
   setPosX: (posX) => set({ posX }),
   setPosY: (posY) => set({ posY }),
-  setPlaying: (playing) => set({ playing }),
+  setPlaying: (playing) => {
+    const current = get().playing;
+    if (current !== playing) set({ playing });
+  },
   setResolution: (res) => set({ resolution: res }),
   resetTransform: () => set({ zoom: 100, posX: 50, posY: 50 }),
 }));

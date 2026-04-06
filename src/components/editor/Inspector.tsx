@@ -1,9 +1,8 @@
-"use client";
 
 import { useTimeline, RESOLUTIONS } from "@/hooks/useTimeline";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import { RotateCcw, ChevronRight, ChevronLeft, Settings, MonitorPlay, Clapperboard, Sun, Moon, Monitor, Eye, EyeOff, Globe, Ratio, Keyboard, Palette, BookOpen, Undo2, Redo2, Play, SkipBack, SkipForward, ZoomIn, ZoomOut, Command, Scissors } from "lucide-react";
+import { RotateCcw, ChevronRight, ChevronLeft, Settings, MonitorPlay, Clapperboard, Sun, Moon, Monitor, Eye, Globe, Ratio, Keyboard, Palette, BookOpen, Undo2, Redo2, Play, SkipBack, SkipForward, ZoomIn, Scissors, Lightbulb } from "lucide-react";
 import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -60,12 +59,13 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
   const { t, i18n } = useTranslation();
   const { 
     zoom, posX, posY, setZoom, setPosX, setPosY, resetTransform, 
-    isPlayerMode, setPlayerMode,
     resolution, setResolution,
     headerShowLang, headerShowRes, headerShowShortcuts, headerShowTheme, headerShowTutorial,
     setHeaderShowLang, setHeaderShowRes, setHeaderShowShortcuts, setHeaderShowTheme, setHeaderShowTutorial,
     undo, redo, past, future, saveHistory,
-    bladeModeLimit, setBladeModeLimit
+    bladeModeLimit, setBladeModeLimit,
+    timelineTimeMode, setTimelineTimeMode,
+    showTips, setShowTips
   } = useTimeline();
   const { theme, setTheme } = useTheme();
   const [showSettings, setShowSettings] = useState(false);
@@ -120,23 +120,6 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showSettings]);
 
-  // Read default mode from localStorage
-  const getDefaultMode = (): 'editor' | 'player' => {
-    if (typeof window === 'undefined') return 'editor';
-    return localStorage.getItem('defaultMode') === 'player' ? 'player' : 'editor';
-  };
-
-  const setDefaultMode = (mode: 'editor' | 'player') => {
-    localStorage.setItem('defaultMode', mode);
-    setPlayerMode(mode === 'player');
-  };
-
-  const [defaultMode, setDefaultModeState] = useState<'editor' | 'player'>(getDefaultMode);
-
-  const handleSetDefaultMode = (mode: 'editor' | 'player') => {
-    setDefaultModeState(mode);
-    setDefaultMode(mode);
-  };
 
   const languages = [
     { code: 'es', label: 'Español' },
@@ -219,39 +202,6 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
               </div>
 
               <div className="p-4 pb-8 space-y-5">
-                {/* Default Mode */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Clapperboard className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span className="text-sm font-medium text-foreground">{t('default_mode')}</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => handleSetDefaultMode('editor')}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
-                        defaultMode === 'editor'
-                          ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-400'
-                          : 'bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-                      }`}
-                    >
-                      <Clapperboard className="w-3.5 h-3.5 shrink-0" />
-                      {t('editor_mode')}
-                    </button>
-                    <button
-                      onClick={() => handleSetDefaultMode('player')}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
-                        defaultMode === 'player'
-                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
-                          : 'bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-                      }`}
-                    >
-                      <MonitorPlay className="w-3.5 h-3.5 shrink-0" />
-                      {t('player_mode')}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="border-t border-border/50" />
 
                 {/* Theme */}
                 <div className="space-y-2">
@@ -344,6 +294,7 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
                       { label: t('shortcuts'), checked: headerShowShortcuts, onChange: setHeaderShowShortcuts, icon: Keyboard },
                       { label: t('language'), checked: headerShowLang, onChange: setHeaderShowLang, icon: Globe },
                       { label: t('tutorial'), checked: headerShowTutorial, onChange: setHeaderShowTutorial, icon: BookOpen },
+                      { label: t('show_tips'), checked: showTips, onChange: setShowTips, icon: Lightbulb },
                     ].map(({ label, checked, onChange, icon: Icon }) => (
                       <div key={label} className="flex flex-col gap-1.5">
                         <div className="flex items-center gap-1.5">
@@ -379,6 +330,31 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
                       >
                         {value === 0 ? '∞' : `✂️×${value}`}
                         <span className="text-[9px]">{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-border/50" />
+
+                {/* Timeline Time Mode */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">{t('timeline_time_mode')}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['seconds', 'minutes', 'hidden'] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => setTimelineTimeMode(mode)}
+                        className={`flex flex-col items-center gap-1 px-2 py-2 rounded-lg border text-[11px] font-medium transition-all ${
+                          timelineTimeMode === mode 
+                            ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-400' 
+                            : 'bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                        }`}
+                      >
+                        {t(mode)}
                       </button>
                     ))}
                   </div>
