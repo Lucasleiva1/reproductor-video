@@ -30,24 +30,35 @@ export default function Home() {
 
         const enterFullscreenPlayer = async () => {
           try {
+            // Set transitioning flag so resize handler doesn't interfere
+            useTimeline.getState().setFsTransitioning(true);
             await appWindow.setDecorations(false);
-            await appWindow.maximize();
             await appWindow.setFullscreen(true);
             setIsFullscreen(true);
+            // Small delay to let the window settle, then release the flag
+            setTimeout(() => {
+              useTimeline.getState().setFsTransitioning(false);
+            }, 500);
           } catch (e) {
+            useTimeline.getState().setFsTransitioning(false);
             console.error("Failed to enter fullscreen", e);
           }
         };
 
+        const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v', '.flv', '.wmv', '.mpg', '.mpeg', '.3gp', '.ogv', '.ts', '.mts', '.m2ts', '.vob', '.divx', '.f4v', '.asf', '.rm', '.rmvb', '.3g2', '.mxf', '.dv'];
+
         // 1. Listen for future path selections (single instance)
-        unlisten = await listen("path-selected", (event: any) => {
+        unlisten = await listen("path-selected", async (event: any) => {
           const paths = event.payload as string[];
           if (paths && paths.length > 0) {
             const videoPath = paths.find(p => 
-              ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v'].some(ext => p.toLowerCase().endsWith(ext))
+              VIDEO_EXTS.some(ext => p.toLowerCase().replace(/["']/g, '').endsWith(ext))
             );
             if (videoPath) {
-              loadVideoByPath(videoPath, true);
+              const cleanPath = videoPath.replace(/^["']|["']$/g, '');
+              // Ensure Tauri allows access to this file
+              try { await invoke('allow_file_access', { path: cleanPath }); } catch(_) {}
+              loadVideoByPath(cleanPath, true);
               enterFullscreenPlayer();
             }
           }
@@ -56,10 +67,12 @@ export default function Home() {
         // 2. Check for initial path (first launch)
         const initialPath = await invoke<string | null>("get_initial_path");
         if (initialPath) {
-          const isVideo = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v'].some(ext => initialPath.toLowerCase().endsWith(ext));
+          const cleanPath = initialPath.replace(/^["']|["']$/g, '');
+          const isVideo = VIDEO_EXTS.some(ext => cleanPath.toLowerCase().endsWith(ext));
           if (isVideo) {
-            console.log("Loading initial video:", initialPath);
-            loadVideoByPath(initialPath, true);
+            // Ensure Tauri allows access to this file
+            try { await invoke('allow_file_access', { path: cleanPath }); } catch(_) {}
+            loadVideoByPath(cleanPath, true);
             enterFullscreenPlayer();
           }
         }
@@ -300,7 +313,7 @@ export default function Home() {
       {/* Main Editing Area */}
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Top: Video Preview Workspace */}
-        <div className={`flex-1 bg-[#121212] flex flex-col relative w-full shadow-inner border-b border-border`}>
+        <div className={`flex-1 bg-[#121212] flex flex-col relative w-full shadow-inner ${isFullscreen ? '' : 'border-b border-border'}`}>
           <Suspense fallback={<div className="flex-1 flex items-center justify-center text-muted-foreground animate-pulse">Cargando editor...</div>}>
             <Canvas />
           </Suspense>

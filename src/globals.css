@@ -145,3 +145,28 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #71717a; /* zinc-500 */
 }
+
+/* Fullscreen mode: kill any stray borders/outlines */
+.fullscreen-active,
+.fullscreen-active > *,
+.fullscreen-active main,
+.fullscreen-active main > div,
+.fullscreen-active main > div > * {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+body:has(.fullscreen-active) {
+  border: none !important;
+  outline: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+html:has(.fullscreen-active) {
+  border: none !important;
+  outline: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}

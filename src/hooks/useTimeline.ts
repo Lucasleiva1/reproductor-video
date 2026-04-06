@@ -81,6 +81,8 @@ interface TimelineState {
   setShowTips: (v: boolean) => void;
   isFullscreen: boolean;
   setIsFullscreen: (v: boolean) => void;
+  fsTransitioning: boolean;
+  setFsTransitioning: (v: boolean) => void;
 
   thumbnails: string[];
   isGeneratingThumbnails: boolean;
@@ -130,6 +132,8 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   },
   isFullscreen: false,
   setIsFullscreen: (v) => set({ isFullscreen: v }),
+  fsTransitioning: false,
+  setFsTransitioning: (v) => set({ fsTransitioning: v }),
 
   thumbnails: [],
   isGeneratingThumbnails: false,
@@ -193,8 +197,10 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   loadVideoByPath: async (path, autoplay = false) => {
     try {
       const { convertFileSrc } = await import('@tauri-apps/api/tauri');
+      const { invoke } = await import('@tauri-apps/api/tauri');
+      // Ensure Tauri allows access to this file path
+      try { await invoke('allow_file_access', { path }); } catch(_) {}
       const url = convertFileSrc(path);
-      // We don't have a File object when loading via path, but ReactPlayer only needs the URL
       set(() => ({
         videoFile: null,
         videoUrl: url,

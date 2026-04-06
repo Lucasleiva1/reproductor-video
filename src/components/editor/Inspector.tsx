@@ -2,7 +2,7 @@
 import { useTimeline, RESOLUTIONS } from "@/hooks/useTimeline";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import { RotateCcw, ChevronRight, ChevronLeft, Settings, MonitorPlay, Clapperboard, Sun, Moon, Monitor, Eye, Globe, Ratio, Keyboard, Palette, BookOpen, Undo2, Redo2, Play, SkipBack, SkipForward, ZoomIn, Scissors, Lightbulb } from "lucide-react";
+import { RotateCcw, ChevronRight, ChevronLeft, Settings, Sun, Moon, Monitor, Eye, Globe, Ratio, Keyboard, Palette, BookOpen, Undo2, Redo2, Play, SkipBack, SkipForward, ZoomIn, Scissors, Lightbulb } from "lucide-react";
 import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";

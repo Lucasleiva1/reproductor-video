@@ -3,7 +3,7 @@ import { useRef, useEffect, useCallback } from "react";
 import { useTimeline } from "@/hooks/useTimeline";
 import { motion, AnimatePresence } from "framer-motion";
 import React, { useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Minimize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2, RotateCcw, X, Maximize2, Copy } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2, RotateCcw, X, Maximize2, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 const ReactPlayer = React.lazy(() => import("react-player"));
@@ -35,21 +35,26 @@ export default function Canvas() {
       const { appWindow } = await import('@tauri-apps/api/window');
       const isCurrentlyFS = await appWindow.isFullscreen();
       
+      // Set guard flag
+      useTimeline.getState().setFsTransitioning(true);
+      
       if (!isCurrentlyFS) {
-        // Hardened sequence for Windows: Hide decorations -> Maximize -> Fullscreen
         await appWindow.setDecorations(false);
-        await appWindow.maximize();
         await appWindow.setFullscreen(true);
         setIsFullscreen(true);
       } else {
-        // Exit native FS
         await appWindow.setFullscreen(false);
         await appWindow.setDecorations(true);
         setIsFullscreen(false);
       }
+      
+      // Release guard after window settles
+      setTimeout(() => {
+        useTimeline.getState().setFsTransitioning(false);
+      }, 500);
     } catch (err) {
+      useTimeline.getState().setFsTransitioning(false);
       console.error("Native fullscreen toggle failed:", err);
-      // Fallback to browser fullscreen if Tauri fails
       if (!document.fullscreenElement) {
         document.documentElement.requestFullscreen().catch(() => {});
       } else {
@@ -80,6 +85,9 @@ export default function Canvas() {
         
         // Listen for window resize to sync fullscreen/maximized state
         unlistenResize = await appWindow.onResized(async () => {
+          // Skip if we're in the middle of a fullscreen transition
+          if (useTimeline.getState().fsTransitioning) return;
+          
           setIsMaximized(await appWindow.isMaximized());
           const fs = await appWindow.isFullscreen();
           setIsFullscreen(fs);
