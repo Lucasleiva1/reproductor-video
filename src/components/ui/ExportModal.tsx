@@ -12,13 +12,14 @@ import { useTranslation } from "react-i18next";
 
 export default function ExportModal() {
   const { t } = useTranslation();
-  const { videoFile, videoPath, clips, zoom, posX, posY, resolution } = useTimeline();
+  const { videoFile, videoPath, clips, zoom, posX, posY, resolution, colorCorrection } = useTimeline();
   const { loaded, loading, progress, renderVideo } = useFFmpeg();
 
   const [isOpen, setIsOpen] = useState(false);
   const [format, setFormat] = useState<"mp4" | "mp3" | "mp4-muted">("mp4");
   const [rendering, setRendering] = useState(false);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
+  const [renderError, setRenderError] = useState<string | null>(null);
   const lastFileNameRef = useRef<string>("");
 
   // Generate random filename: 20 digits, never repeats previous
@@ -37,6 +38,7 @@ export default function ExportModal() {
     if ((!videoFile && !videoPath) || !loaded) return;
     setRendering(true);
     setResultUrl(null);
+    setRenderError(null);
 
     let inputData: File | Uint8Array;
     let width = 0;
@@ -46,13 +48,15 @@ export default function ExportModal() {
       if (videoFile) {
         inputData = videoFile;
         const tempVideo = document.createElement("video");
-        tempVideo.src = URL.createObjectURL(videoFile);
+        const fileUrl = URL.createObjectURL(videoFile);
+        tempVideo.src = fileUrl;
         await new Promise((resolve) => {
           tempVideo.onloadedmetadata = () => resolve(true);
           tempVideo.onerror = () => resolve(false);
         });
         width = tempVideo.videoWidth;
         height = tempVideo.videoHeight;
+        URL.revokeObjectURL(fileUrl);
       } else if (videoPath) {
         const { readBinaryFile } = await import('@tauri-apps/api/fs');
         inputData = await readBinaryFile(videoPath);
@@ -81,11 +85,13 @@ export default function ExportModal() {
         format,
         width,
         height,
-        resolution
+        resolution,
+        colorCorrection
       );
       setResultUrl(url);
     } catch (e) {
       console.error(e);
+      setRenderError("Error al exportar. Intenta nuevamente.");
     } finally {
       setRendering(false);
     }
@@ -135,6 +141,7 @@ export default function ExportModal() {
     if (!isOpen) {
       setResultUrl(null);
       setRendering(false);
+      setRenderError(null);
     }
   }, [isOpen]);
 
@@ -203,6 +210,9 @@ export default function ExportModal() {
                    <Button variant="ghost" onClick={() => setIsOpen(false)}>{t('cancel')}</Button>
                    <Button onClick={handleRender} className="bg-blue-600 text-white hover:bg-blue-700">{t('start_render')}</Button>
                 </div>
+                {renderError && (
+                  <p className="text-sm text-red-500">{renderError}</p>
+                )}
               </motion.div>
             ) : rendering ? (
               <motion.div 

@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 export default function Home() {
   const [showInspector, setShowInspector] = useState(true);
   const { t, i18n } = useTranslation();
-  const { setVideoFile, loadVideoByPath, resolution, setResolution, duration, setPlaying, setCurrentTime, canvasScale, setCanvasScale, isFullscreen, setIsFullscreen, headerShowLang, headerShowRes, headerShowShortcuts, headerShowTheme, headerShowTutorial } = useTimeline();
+  const { appMode, setVideoFile, loadVideoByPath, resolution, setResolution, duration, setPlaying, setCurrentTime, canvasScale, setCanvasScale, isFullscreen, headerShowLang, headerShowRes, headerShowShortcuts, headerShowTheme, headerShowTutorial } = useTimeline();
   
   // --- Tauri File Open Handler ---
   useEffect(() => {
@@ -26,25 +26,6 @@ export default function Home() {
       try {
         const { listen } = await import("@tauri-apps/api/event");
         const { invoke } = await import("@tauri-apps/api/tauri");
-        const { appWindow } = await import("@tauri-apps/api/window");
-
-        const enterFullscreenPlayer = async () => {
-          try {
-            // Set transitioning flag so resize handler doesn't interfere
-            useTimeline.getState().setFsTransitioning(true);
-            await appWindow.setDecorations(false);
-            await appWindow.setFullscreen(true);
-            setIsFullscreen(true);
-            // Small delay to let the window settle, then release the flag
-            setTimeout(() => {
-              useTimeline.getState().setFsTransitioning(false);
-            }, 500);
-          } catch (e) {
-            useTimeline.getState().setFsTransitioning(false);
-            console.error("Failed to enter fullscreen", e);
-          }
-        };
-
         const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v', '.flv', '.wmv', '.mpg', '.mpeg', '.3gp', '.ogv', '.ts', '.mts', '.m2ts', '.vob', '.divx', '.f4v', '.asf', '.rm', '.rmvb', '.3g2', '.mxf', '.dv'];
 
         // 1. Listen for future path selections (single instance)
@@ -59,7 +40,6 @@ export default function Home() {
               // Ensure Tauri allows access to this file
               try { await invoke('allow_file_access', { path: cleanPath }); } catch(_) {}
               loadVideoByPath(cleanPath, true);
-              enterFullscreenPlayer();
             }
           }
         });
@@ -73,7 +53,6 @@ export default function Home() {
             // Ensure Tauri allows access to this file
             try { await invoke('allow_file_access', { path: cleanPath }); } catch(_) {}
             loadVideoByPath(cleanPath, true);
-            enterFullscreenPlayer();
           }
         }
       } catch (err) {
@@ -85,7 +64,7 @@ export default function Home() {
     return () => {
       if (unlisten) unlisten();
     };
-  }, [loadVideoByPath, setIsFullscreen]);
+  }, [loadVideoByPath]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -140,11 +119,11 @@ export default function Home() {
 
   return (
     <div 
-      className={`h-screen flex flex-col bg-background text-foreground overflow-hidden selection:bg-indigo-500/30 ${isFullscreen ? 'fullscreen-active' : ''}`}
+      className={`h-screen flex flex-col bg-background text-foreground overflow-hidden selection:bg-indigo-500/30 ${isFullscreen || appMode === "player" ? 'fullscreen-active' : ''}`}
     >
       {/* Header */}
       {/* Header - hide in fullscreen to maximize space, or only show if NOT in fullscreen */}
-      {!isFullscreen && (
+      {!isFullscreen && appMode === "editor" && (
       <header className="h-14 border-b border-border px-6 flex items-center justify-between bg-background/95 backdrop-blur-md z-10 shrink-0">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-indigo-400 to-emerald-400 drop-shadow-sm">
@@ -319,7 +298,7 @@ export default function Home() {
           </Suspense>
 
           {/* Canvas Zoom Indicator */}
-          {duration > 0 && !isFullscreen && (
+          {duration > 0 && !isFullscreen && appMode === "editor" && (
             <div className="absolute bottom-3 left-3 z-20 bg-black/60 backdrop-blur-sm text-white text-[11px] font-mono px-2.5 py-1 rounded-md border border-white/10 select-none tabular-nums">
               {t('canvas_zoom')}: {(canvasScale * 100).toFixed(0)}%
             </div>
@@ -327,7 +306,7 @@ export default function Home() {
         </div>
         
         {/* Bottom Panel: Editing Tools */}
-        {!isFullscreen && (
+        {!isFullscreen && appMode === "editor" && (
         <div className="h-[22rem] bg-background flex shrink-0 w-full z-10 relative">
           <div className="flex-1 flex flex-col h-full border-r border-border overflow-hidden">
              <Timeline />

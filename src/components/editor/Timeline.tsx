@@ -6,6 +6,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { FaPlay, FaPause } from "react-icons/fa";
 import { Trash2, Magnet, Lightbulb } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { getClipDuration, getContentDuration } from "@/utils/timeline";
 
 import {
   ContextMenu,
@@ -17,6 +18,7 @@ import {
 // --- CONFIGURACIÓN TÉCNICA ---
 const SNAP_THRESHOLD_PX = 10;
 const MIN_CLIP_DURATION = 0.2; // Minimum clip duration in seconds
+const BASE_PIXELS_PER_SECOND = 18;
 
 // Colores para los clips alternados
 const CLIP_COLORS = [
@@ -40,6 +42,10 @@ export default function Timeline() {
   const [bladeMode, setBladeMode] = useState(false);
   const [bladeCutsRemaining, setBladeCutsRemaining] = useState(bladeModeLimit || 2);
   const [snappingActive, setSnappingActive] = useState(true);
+  const contentDuration = getContentDuration(clips);
+  const viewDuration = Math.max(duration, contentDuration + 10, 30);
+  const pixelsPerSecond = BASE_PIXELS_PER_SECOND * timelineZoom;
+  const trackWidthPx = Math.max(1, viewDuration * pixelsPerSecond);
 
   // --- Usage Tips ---
   const TIPS_COUNT = 11;
@@ -110,8 +116,7 @@ export default function Timeline() {
     const container = scrollContainerRef.current;
     
     // Calculate the absolute pixel position of the playhead within the scrollable world
-    const trackWidth = trackRef.current.getBoundingClientRect().width;
-    const worldPlayheadX = trackRef.current.offsetLeft + (currentTime / duration) * trackWidth;
+    const worldPlayheadX = trackRef.current.offsetLeft + currentTime * pixelsPerSecond;
     
     const viewLeft = container.scrollLeft;
     const viewRight = container.scrollLeft + container.clientWidth;
@@ -132,13 +137,12 @@ export default function Timeline() {
         behavior: 'auto'
       });
     }
-  }, [currentTime, playing, duration]);
+  }, [currentTime, duration, pixelsPerSecond, playing]);
 
   // --- Helpers ---
   const getPxPerSec = useCallback(() => {
-    if (duration <= 0 || !trackRef.current) return 1;
-    return trackRef.current.getBoundingClientRect().width / duration;
-  }, [duration]);
+    return pixelsPerSecond;
+  }, [pixelsPerSecond]);
 
   const getSnapThresholdSec = useCallback(() => {
     const pps = getPxPerSec();
@@ -189,8 +193,8 @@ export default function Timeline() {
     if (!trackRef.current) return;
     const rect = trackRef.current.getBoundingClientRect();
     const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
-    setCurrentTime((x / rect.width) * duration);
-  }, [duration, setCurrentTime]);
+    setCurrentTime(Math.min(viewDuration, x / pixelsPerSecond));
+  }, [pixelsPerSecond, setCurrentTime, viewDuration]);
 
   // --- DRAG PROCESSING LOGIC ---
   const processDrag = useCallback((clientX: number) => {
@@ -201,8 +205,7 @@ export default function Timeline() {
     const scrollDelta = scrollContainerRef.current.scrollLeft - ds.initialScrollLeft;
     const pxDelta = clientX - ds.startX + scrollDelta;
     
-    // Use SNAPSHOTTED values from drag start to prevent feedback loops
-    const timeDelta = (pxDelta / ds.initialTrackWidth) * ds.initialDuration;
+    const timeDelta = pxDelta / pixelsPerSecond;
 
     const store = useTimeline.getState();
     let snapped = false;
@@ -323,7 +326,7 @@ export default function Timeline() {
     }
 
     setIsSnapped(snapped);
-  }, [clips, snappingActive, getSnapThresholdSec]);
+  }, [clips, snappingActive, getSnapThresholdSec, pixelsPerSecond]);
 
   // --- AUTO-PANNING (EDGE SCROLL) LOGIC ---
   const triggerUpdateForDrag = useCallback((clientX: number) => {
@@ -417,7 +420,7 @@ export default function Timeline() {
     if (!bladeMode || !trackRef.current) return;
     const rect = trackRef.current.getBoundingClientRect();
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    splitClip(clipId, (x / rect.width) * duration);
+    splitClip(clipId, x / pixelsPerSecond);
 
     // Handle cut counter
     if (bladeModeLimit === 0) {
@@ -433,7 +436,7 @@ export default function Timeline() {
     }
   };
 
-  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const progressLeftPx = Math.max(0, Math.min(currentTime * pixelsPerSecond, trackWidthPx));
 
   // --- Middle-mouse panning ---
   const onPanStart = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -533,18 +536,18 @@ export default function Timeline() {
           ref={trackRef}
           className="h-full relative flex items-center shrink-0 origin-left"
           animate={{ 
-            width: `calc(${timelineZoom * 100}% - 32px)`,
+            width: `${trackWidthPx}px`,
             margin: '0 16px' 
           }}
           transition={{ type: "spring", bounce: 0, duration: 0.4 }}
         >
           {/* Background Grid Lines */}
           <div className="absolute inset-0 pointer-events-none overflow-hidden">
-            {duration > 0 && Array.from({ length: Math.min(Math.ceil(duration / (timelineZoom > 5 ? 1 : timelineZoom > 2 ? 5 : 10)) + 1, 200) }).map((_, i) => {
+            {viewDuration > 0 && Array.from({ length: Math.min(Math.ceil(viewDuration / (timelineZoom > 5 ? 1 : timelineZoom > 2 ? 5 : 10)) + 1, 200) }).map((_, i) => {
               const step = timelineZoom > 5 ? 1 : timelineZoom > 2 ? 5 : 10;
               const sec = i * step;
-              if (sec > duration) return null;
-              return <div key={i} className="absolute top-0 bottom-0 w-px bg-white/[0.03]" style={{ left: `${(sec / duration) * 100}%` }} />;
+              if (sec > viewDuration) return null;
+              return <div key={i} className="absolute top-0 bottom-0 w-px bg-white/[0.03]" style={{ left: `${sec * pixelsPerSecond}px` }} />;
             })}
           </div>
 
@@ -577,9 +580,9 @@ export default function Timeline() {
                 updateAutoPan(e.clientX, false);
             }}
           >
-            {duration > 0 && Array.from({ length: Math.ceil(duration) + 1 }).map((_, i) => {
-               if (i > duration) return null;
-                const pxPerSec = (timelineZoom * 1000) / duration;
+            {viewDuration > 0 && Array.from({ length: Math.ceil(viewDuration) + 1 }).map((_, i) => {
+               if (i > viewDuration) return null;
+                const pxPerSec = pixelsPerSecond;
                 let majorStep = 1;
 
                 if (timelineTimeMode === 'minutes') {
@@ -599,7 +602,7 @@ export default function Timeline() {
                 const isMajor = i % majorStep === 0;
                 if (!isMajor && pxPerSec <= 3) return null;
                return (
-                 <div key={i} className="absolute bottom-0 flex flex-col items-center -translate-x-1/2 pointer-events-none" style={{ left: `${(i / Math.max(duration, 0.1)) * 100}%` }}>
+                 <div key={i} className="absolute bottom-0 flex flex-col items-center -translate-x-1/2 pointer-events-none" style={{ left: `${i * pixelsPerSecond}px` }}>
                    {isMajor ? (
                      <>
                         {timelineTimeMode !== 'hidden' && (
@@ -618,17 +621,17 @@ export default function Timeline() {
           {/* Playhead */}
           <div 
             className="absolute top-0 bottom-0 w-px z-50 pointer-events-none"
-            style={{ left: `${progressPercent}%`, background: 'linear-gradient(to bottom, #ef4444, #ef444480)' }}
+            style={{ left: `${progressLeftPx}px`, background: 'linear-gradient(to bottom, #ef4444, #ef444480)' }}
           >
             <div className="absolute top-0 -translate-x-1/2 w-3 h-3 rounded-sm shadow-lg bg-red-500 transform rotate-45" style={{ boxShadow: '0 0 8px rgba(239,68,68,0.6)' }} />
           </div>
 
           {/* Multi-Clip Track */}
           <div className="w-full relative flex items-center" style={{ height: 'calc(100% - 32px)', marginTop: '32px' }}>
-             {duration > 0 && clips.map((clip, index) => {
-                const clipDur = clip.trimEnd - clip.trimStart;
-                const clipStartPct = (clip.startAt / duration) * 100;
-                const clipWidthPct = (clipDur / duration) * 100;
+             {viewDuration > 0 && clips.map((clip, index) => {
+                const clipDur = getClipDuration(clip);
+                const clipStartPx = clip.startAt * pixelsPerSecond;
+                const clipWidthPx = Math.max(1, clipDur * pixelsPerSecond);
                 const color = CLIP_COLORS[index % CLIP_COLORS.length];
                 const isDragging = activeClipId === clip.id;
                 const isTrimming = isDragging && (dragMode === 'trim-left' || dragMode === 'trim-right');
@@ -638,8 +641,8 @@ export default function Timeline() {
                     <ContextMenuTrigger
                       className="absolute group select-none"
                       style={{ 
-                        left: `${clipStartPct}%`, 
-                        width: `${clipWidthPct}%`,
+                        left: `${clipStartPx}px`, 
+                        width: `${clipWidthPx}px`,
                         height: '70%',
                         zIndex: isDragging ? 50 : 10,
                       }}
@@ -679,8 +682,7 @@ export default function Timeline() {
                               {(() => {
                                 // Dynamically calculate how many thumbnails to render based on physical zoom width
                                 // to maintain a 16:9 aspect ratio and avoid the "barcode" / squished effect.
-                                const trackW = trackRef.current ? trackRef.current.getBoundingClientRect().width : 1000 * timelineZoom;
-                                const pxPerSec = duration > 0 ? trackW / duration : 100;
+                                const pxPerSec = pixelsPerSecond;
                                 const sourceWidthPx = clip.sourceDuration * pxPerSec;
                                 
                                 const THUMB_WIDTH = 80; // Fixed pixel width for 16:9 look
@@ -811,7 +813,7 @@ export default function Timeline() {
         <span className={snappingActive ? 'text-indigo-400' : 'text-zinc-600'}>
           {trimmingSide ? `✏️ Trimming ${trimmingSide === 'left' ? 'Inicio' : 'Final'}` : snappingActive ? `Snapping Activo (${SNAP_THRESHOLD_PX}px)` : 'Snapping Off'}
         </span>
-        <span className="font-mono">{formatTime(duration)}</span>
+        <span className="font-mono">{formatTime(viewDuration)}</span>
       </div>
     </div>
   );

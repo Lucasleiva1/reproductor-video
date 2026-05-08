@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { generateThumbnails } from "@/utils/thumbnailGenerator";
+import { getContentDuration, rippleDeleteClip } from "@/utils/timeline";
 
 export type Resolution = { w: number; h: number; name: string };
 export const RESOLUTIONS: Resolution[] = [
@@ -20,7 +21,28 @@ export interface Clip {
   trimEnd: number;        // The end time relative to the original source video
 }
 
+export type AppMode = "editor" | "player";
+
+export interface ColorCorrection {
+  enabled: boolean;
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  shadows: number;
+  temperature: number;
+}
+
+export const DEFAULT_COLOR_CORRECTION: ColorCorrection = {
+  enabled: false,
+  brightness: 0,
+  contrast: 0,
+  saturation: 0,
+  shadows: 0,
+  temperature: 0,
+};
+
 interface TimelineState {
+  appMode: AppMode;
   videoFile: File | null;
   videoUrl: string | null;
   videoPath: string | null;
@@ -31,6 +53,7 @@ interface TimelineState {
   canvasScale: number; // 0.1 to 3.0 (Whole canvas size zoom)
   posX: number; // 0 to 100 normalized, 50 is center
   posY: number; // 0 to 100 normalized, 50 is center
+  colorCorrection: ColorCorrection;
   playing: boolean;
   resolution: Resolution;
 
@@ -43,6 +66,7 @@ interface TimelineState {
 
   setVideoFile: (file: File | null, url: string | null) => void;
   loadVideoByPath: (path: string, autoplay?: boolean) => Promise<void>;
+  setAppMode: (mode: AppMode) => void;
   setDuration: (duration: number) => void;
   setCurrentTime: (time: number) => void;
   setClips: (clips: Clip[] | ((prev: Clip[]) => Clip[])) => void;
@@ -53,6 +77,8 @@ interface TimelineState {
   setCanvasScale: (scale: number) => void;
   setPosX: (x: number) => void;
   setPosY: (y: number) => void;
+  setColorCorrection: (updates: Partial<ColorCorrection>) => void;
+  resetColorCorrection: () => void;
   setPlaying: (playing: boolean) => void;
   setResolution: (res: Resolution) => void;
   resetTransform: () => void;
@@ -89,6 +115,7 @@ interface TimelineState {
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
+let thumbnailGenerationToken = 0;
 
 export const useTimeline = create<TimelineState>((set, get) => ({
   // Header visibility (default all true)
@@ -108,6 +135,7 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   setBladeModeLimit: (v) => { if (typeof window !== 'undefined') localStorage.setItem('bladeModeLimit', String(v)); set({ bladeModeLimit: v }); },
 
   videoFile: null,
+  appMode: "editor",
   videoUrl: null,
   videoPath: null,
   duration: 0,
@@ -117,6 +145,7 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   canvasScale: 1, // 1 = 100% of the available area
   posX: 50, // 50 = center
   posY: 50, // 50 = center
+  colorCorrection: DEFAULT_COLOR_CORRECTION,
   playing: false,
   resolution: RESOLUTIONS[2],
 
@@ -182,8 +211,10 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   setVideoFile: (file, url) => {
     // When a new file is loaded, create an initial clip right at 0s.
     // We don't know the exact duration yet, wait for setDuration to update it.
+    thumbnailGenerationToken += 1;
     set(() => ({ 
       videoFile: file, 
+      appMode: "editor",
       videoUrl: url, 
       videoPath: null, // Clear path if we have a File object
       currentTime: 0,
@@ -201,8 +232,10 @@ export const useTimeline = create<TimelineState>((set, get) => ({
       // Ensure Tauri allows access to this file path
       try { await invoke('allow_file_access', { path }); } catch(_) {}
       const url = convertFileSrc(path);
+      thumbnailGenerationToken += 1;
       set(() => ({
         videoFile: null,
+        appMode: autoplay ? "player" : "editor",
         videoUrl: url,
         videoPath: path,
         currentTime: 0,
@@ -215,6 +248,8 @@ export const useTimeline = create<TimelineState>((set, get) => ({
       console.error("Failed to load video by path:", err);
     }
   },
+
+  setAppMode: (appMode) => set({ appMode }),
   
   setDuration: (duration) => {
     const { videoUrl, clips, thumbnails, isGeneratingThumbnails } = get();
@@ -234,13 +269,28 @@ export const useTimeline = create<TimelineState>((set, get) => ({
       });
 
       if (duration > 0 && !isGeneratingThumbnails && thumbnails.length === 0) {
+        const tokenAtStart = thumbnailGenerationToken;
+        const sourceVideoUrl = videoUrl;
         set({ isGeneratingThumbnails: true });
         generateThumbnails({
           videoUrl,
           duration,
           maxThumbnails: 60, // Sufficient for wide screens
+          shouldAbort: () => {
+            const state = get();
+            return (
+              tokenAtStart !== thumbnailGenerationToken ||
+              state.videoUrl !== sourceVideoUrl
+            );
+          },
           onThumbnail: (index, _total, dataUrl) => {
             set((state) => {
+              if (
+                tokenAtStart !== thumbnailGenerationToken ||
+                state.videoUrl !== sourceVideoUrl
+              ) {
+                return state;
+              }
               // Replace entire array with progressive push to avoid mutating references safely
               const nextThumbnails = [...state.thumbnails];
               nextThumbnails[index] = dataUrl;
@@ -248,6 +298,7 @@ export const useTimeline = create<TimelineState>((set, get) => ({
             });
           }
         }).finally(() => {
+          if (tokenAtStart !== thumbnailGenerationToken) return;
           set({ isGeneratingThumbnails: false });
         });
       }
@@ -263,7 +314,7 @@ export const useTimeline = create<TimelineState>((set, get) => ({
     set((state) => {
       const newClips = typeof updater === 'function' ? updater(state.clips) : updater;
       // Re-calculate total duration based on the furthest ending clip
-      const maxEnd = newClips.reduce((max, clip) => Math.max(max, clip.startAt + (clip.trimEnd - clip.trimStart)), 0);
+      const maxEnd = getContentDuration(newClips);
       
       // Prevent the timeline from shrinking dynamically during edits. 
       // Only grow it, adding a nice 10s visual buffer at the end.
@@ -313,13 +364,22 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   removeClip: (id) => {
     const { clips, setClips, saveHistory } = get();
     saveHistory();
-    setClips(clips.filter(c => c.id !== id));
+    setClips(rippleDeleteClip(clips, id));
   },
 
   setZoom: (zoom) => set({ zoom }),
   setCanvasScale: (canvasScale) => set({ canvasScale }),
   setPosX: (posX) => set({ posX }),
   setPosY: (posY) => set({ posY }),
+  setColorCorrection: (updates) => {
+    set((state) => ({
+      colorCorrection: {
+        ...state.colorCorrection,
+        ...updates,
+      },
+    }));
+  },
+  resetColorCorrection: () => set({ colorCorrection: DEFAULT_COLOR_CORRECTION }),
   setPlaying: (playing) => {
     const current = get().playing;
     if (current !== playing) set({ playing });

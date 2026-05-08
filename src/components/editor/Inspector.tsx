@@ -65,7 +65,8 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
     undo, redo, past, future, saveHistory,
     bladeModeLimit, setBladeModeLimit,
     timelineTimeMode, setTimelineTimeMode,
-    showTips, setShowTips
+    showTips, setShowTips,
+    colorCorrection, setColorCorrection, resetColorCorrection
   } = useTimeline();
   const { theme, setTheme } = useTheme();
   const [showSettings, setShowSettings] = useState(false);
@@ -85,6 +86,17 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
   const devLinks = [
     { text: "POWERED BY FLOWGRAVITY", url: "https://my-portfolio-tau-mauve.vercel.app/" },
     { text: "BAJO FLOW", url: "https://bajo-flow.netlify.app/" }
+  ];
+
+  const applyColorCorrection = (updates: Partial<typeof colorCorrection>) => {
+    setColorCorrection({ enabled: true, ...updates });
+  };
+
+  const colorPresets = [
+    { label: "Normal", values: { enabled: false, brightness: 0, contrast: 0, saturation: 0, shadows: 0, temperature: 0 } },
+    { label: "Mas claro", values: { enabled: true, brightness: 8, contrast: 6, saturation: 4, shadows: 18, temperature: 2 } },
+    { label: "Mas vivo", values: { enabled: true, brightness: 3, contrast: 12, saturation: 18, shadows: 8, temperature: 4 } },
+    { label: "Cine suave", values: { enabled: true, brightness: -2, contrast: 10, saturation: -4, shadows: 12, temperature: -5 } },
   ];
 
   // Calculate popover position when opening
@@ -424,6 +436,91 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
           <ScrubbableNumber value={posY} onChange={setPosY} min={0} max={100} step={0.5} format={(v: number) => `${v.toFixed(0)}%`} />
         </div>
         <Slider value={[posY]} min={0} max={100} onValueChange={(val) => setPosY(Array.isArray(val) ? val[0] : val as number)} />
+      </div>
+
+      <div className="border-t border-border/50 pt-5 space-y-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold">Imagen</div>
+            <div className="text-xs text-muted-foreground">Mejorar color sin afectar la carga</div>
+          </div>
+          <ToggleSwitch
+            checked={colorCorrection.enabled}
+            onChange={(enabled) => setColorCorrection({ enabled })}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {colorPresets.map((preset) => (
+            <button
+              key={preset.label}
+              onClick={() => setColorCorrection(preset.values)}
+              className={`px-3 py-2 rounded-lg border text-[11px] font-medium transition-all ${
+                colorCorrection.enabled === preset.values.enabled &&
+                colorCorrection.brightness === preset.values.brightness &&
+                colorCorrection.contrast === preset.values.contrast &&
+                colorCorrection.saturation === preset.values.saturation &&
+                colorCorrection.shadows === preset.values.shadows &&
+                colorCorrection.temperature === preset.values.temperature
+                  ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-400'
+                  : 'bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+              }`}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
+        <div className={`space-y-4 transition-opacity ${colorCorrection.enabled ? 'opacity-100' : 'opacity-55'}`}>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Brillo</span>
+              <ScrubbableNumber value={colorCorrection.brightness} onChange={(brightness: number) => applyColorCorrection({ brightness })} min={-50} max={50} step={0.5} format={(v: number) => `${v.toFixed(0)}`} />
+            </div>
+            <Slider value={[colorCorrection.brightness]} min={-50} max={50} onValueChange={(val) => applyColorCorrection({ brightness: Array.isArray(val) ? val[0] : val as number })} />
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Sombras</span>
+              <ScrubbableNumber value={colorCorrection.shadows} onChange={(shadows: number) => applyColorCorrection({ shadows })} min={-50} max={50} step={0.5} format={(v: number) => `${v.toFixed(0)}`} />
+            </div>
+            <Slider value={[colorCorrection.shadows]} min={-50} max={50} onValueChange={(val) => applyColorCorrection({ shadows: Array.isArray(val) ? val[0] : val as number })} />
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Contraste</span>
+              <ScrubbableNumber value={colorCorrection.contrast} onChange={(contrast: number) => applyColorCorrection({ contrast })} min={-50} max={50} step={0.5} format={(v: number) => `${v.toFixed(0)}`} />
+            </div>
+            <Slider value={[colorCorrection.contrast]} min={-50} max={50} onValueChange={(val) => applyColorCorrection({ contrast: Array.isArray(val) ? val[0] : val as number })} />
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Saturacion</span>
+              <ScrubbableNumber value={colorCorrection.saturation} onChange={(saturation: number) => applyColorCorrection({ saturation })} min={-50} max={50} step={0.5} format={(v: number) => `${v.toFixed(0)}`} />
+            </div>
+            <Slider value={[colorCorrection.saturation]} min={-50} max={50} onValueChange={(val) => applyColorCorrection({ saturation: Array.isArray(val) ? val[0] : val as number })} />
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Temperatura</span>
+              <ScrubbableNumber value={colorCorrection.temperature} onChange={(temperature: number) => applyColorCorrection({ temperature })} min={-50} max={50} step={0.5} format={(v: number) => `${v.toFixed(0)}`} />
+            </div>
+            <Slider value={[colorCorrection.temperature]} min={-50} max={50} onValueChange={(val) => applyColorCorrection({ temperature: Array.isArray(val) ? val[0] : val as number })} />
+          </div>
+        </div>
+
+        <Button
+          variant="secondary"
+          onClick={resetColorCorrection}
+          className="w-full"
+        >
+          <RotateCcw className="w-4 h-4 mr-2" />
+          Reset imagen
+        </Button>
       </div>
 
     </div>

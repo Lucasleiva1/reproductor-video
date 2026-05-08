@@ -4,6 +4,7 @@ export interface GenerateOptions {
   maxThumbnails?: number;
   thumbnailWidth?: number;
   onThumbnail?: (index: number, total: number, dataUrl: string) => void;
+  shouldAbort?: () => boolean;
 }
 
 export const generateThumbnails = async ({
@@ -11,10 +12,37 @@ export const generateThumbnails = async ({
   duration,
   maxThumbnails = 40,
   thumbnailWidth = 100,
-  onThumbnail
+  onThumbnail,
+  shouldAbort
 }: GenerateOptions): Promise<string[]> => {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let settled = false;
+    const cleanup = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      video.onloadeddata = null;
+      video.onseeked = null;
+      video.onerror = null;
+      video.removeAttribute('src');
+      video.load();
+    };
+    const safeResolve = (value: string[]) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const safeReject = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
     video.src = videoUrl;
     video.crossOrigin = 'anonymous';
     // Mute is important to prevent autoplay policies from blocking
@@ -39,11 +67,12 @@ export const generateThumbnails = async ({
       let currentIndex = 0;
 
       const captureFrame = () => {
+        if (shouldAbort?.()) {
+          safeResolve(thumbnails);
+          return;
+        }
         if (currentIndex >= numThumbnails) {
-          // Finish
-          video.removeAttribute('src'); // Cleanup
-          video.load();
-          resolve(thumbnails);
+          safeResolve(thumbnails);
           return;
         }
 
@@ -52,6 +81,10 @@ export const generateThumbnails = async ({
       };
 
       video.onseeked = () => {
+        if (shouldAbort?.()) {
+          safeResolve(thumbnails);
+          return;
+        }
         // Draw the current frame to canvas
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         
@@ -66,14 +99,14 @@ export const generateThumbnails = async ({
         currentIndex++;
 
         // small pause to let the React UI render without freezing
-        setTimeout(() => {
+        timeoutId = setTimeout(() => {
           captureFrame();
         }, 10);
       };
 
       video.onerror = (e) => {
         console.error('Error generando thumbnail:', e);
-        reject(e);
+        safeReject(e);
       };
 
       // Iniciar el ciclo
