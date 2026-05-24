@@ -1,5 +1,5 @@
 
-import { useTimeline } from "@/hooks/useTimeline";
+import { useTimeline, type Clip } from "@/hooks/useTimeline";
 import { Slider } from "@/components/ui/slider";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useRef, useCallback, useEffect } from "react";
@@ -32,9 +32,61 @@ const CLIP_COLORS = [
 
 type DragMode = 'move' | 'trim-left' | 'trim-right' | null;
 
+function TimelineFilmstrip({
+  clip,
+  clipWidthPx,
+  thumbnails,
+  isGeneratingThumbnails,
+}: {
+  clip: Clip;
+  clipWidthPx: number;
+  thumbnails: string[];
+  isGeneratingThumbnails: boolean;
+}) {
+  const clipDur = getClipDuration(clip);
+  const usableThumbnails = thumbnails.filter(Boolean);
+  const thumbCount = usableThumbnails.length;
+  const tileTargetWidth = 104;
+  const tileCount = Math.max(1, Math.min(64, Math.ceil(clipWidthPx / tileTargetWidth)));
+
+  if (thumbCount === 0) {
+    return (
+      <div className="absolute inset-x-0 top-1/2 h-[46px] -translate-y-1/2 overflow-hidden bg-black/90 ring-1 ring-black">
+        <div className={`h-full w-full ${isGeneratingThumbnails ? 'animate-pulse bg-gradient-to-r from-zinc-950 via-zinc-800 to-zinc-950' : 'bg-zinc-950'}`} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="absolute inset-x-0 top-1/2 h-[46px] -translate-y-1/2 overflow-hidden bg-black ring-1 ring-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]">
+      <div className="flex h-full gap-px bg-black">
+        {Array.from({ length: tileCount }).map((_, i) => {
+          const tileMidpoint = (i + 0.5) / tileCount;
+          const sourceTime = clip.trimStart + tileMidpoint * clipDur;
+          const thumbIndex = Math.max(
+            0,
+            Math.min(thumbCount - 1, Math.round((sourceTime / Math.max(0.1, clip.sourceDuration)) * (thumbCount - 1)))
+          );
+
+          return (
+            <div key={i} className="h-full min-w-0 flex-1 overflow-hidden bg-black">
+              <img
+                src={usableThumbnails[thumbIndex]}
+                alt=""
+                draggable={false}
+                className="h-full w-full select-none object-cover opacity-95 contrast-110 saturate-110"
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function Timeline() {
   const { t } = useTranslation();
-  const { duration, currentTime, clips, splitClip, removeClip, videoFile, playing, setPlaying, setCurrentTime, bladeModeLimit, timelineTimeMode, showTips, thumbnails } = useTimeline();
+  const { duration, currentTime, clips, splitClip, removeClip, videoFile, playing, setPlaying, setCurrentTime, bladeModeLimit, timelineTimeMode, showTips, thumbnails, isGeneratingThumbnails, ensureThumbnails } = useTimeline();
   const [timelineZoom, setTimelineZoom] = useState(1);
   const trackRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -46,6 +98,10 @@ export default function Timeline() {
   const viewDuration = Math.max(duration, contentDuration + 10, 30);
   const pixelsPerSecond = BASE_PIXELS_PER_SECOND * timelineZoom;
   const trackWidthPx = Math.max(1, viewDuration * pixelsPerSecond);
+
+  useEffect(() => {
+    ensureThumbnails();
+  }, [ensureThumbnails, clips.length]);
 
   // --- Usage Tips ---
   const TIPS_COUNT = 11;
@@ -652,7 +708,7 @@ export default function Timeline() {
                           className="absolute inset-0 flex flex-col justify-center overflow-hidden"
                           style={{ 
                             cursor: bladeMode ? 'crosshair' : (isDragging && dragMode === 'move' ? 'grabbing' : 'grab'),
-                            backgroundColor: isDragging && isSnapped ? color.bg.replace('0.15', '0.35') : color.bg,
+                            backgroundColor: isDragging && isSnapped ? color.bg.replace('0.15', '0.35') : '#101014',
                             borderWidth: '2px',
                             borderStyle: 'solid',
                             borderColor: isTrimming ? '#fff' : (isDragging && isSnapped ? color.solid : color.border),
@@ -670,63 +726,24 @@ export default function Timeline() {
                           onPointerUp={onDragEnd}
                           onPointerCancel={onDragEnd}
                         >
-                          {/* Thumbnails strip */}
-                          {thumbnails.length > 0 && (
-                            <div 
-                              className="absolute top-0 bottom-0 pointer-events-none flex overflow-hidden opacity-60"
-                              style={{
-                                width: `${(clip.sourceDuration / clipDur) * 100}%`,
-                                left: `${-(clip.trimStart / clipDur) * 100}%`
-                              }}
-                            >
-                              {(() => {
-                                // Dynamically calculate how many thumbnails to render based on physical zoom width
-                                // to maintain a 16:9 aspect ratio and avoid the "barcode" / squished effect.
-                                const pxPerSec = pixelsPerSecond;
-                                const sourceWidthPx = clip.sourceDuration * pxPerSec;
-                                
-                                const THUMB_WIDTH = 80; // Fixed pixel width for 16:9 look
-                                const numWanted = Math.max(1, Math.ceil(sourceWidthPx / THUMB_WIDTH));
-                                
-                                const elements = [];
-                                for (let i = 0; i < numWanted; i++) {
-                                  // Time this exact thumbnail box represents logically
-                                  const boxTimeSecs = (i * THUMB_WIDTH) / Math.max(0.1, pxPerSec);
-                                  
-                                  // Map this time to the closest available pre-calculated thumbnail
-                                  const thumbIndex = Math.min(
-                                    thumbnails.length - 1, 
-                                    Math.floor((boxTimeSecs / clip.sourceDuration) * thumbnails.length)
-                                  );
-                                  const src = thumbnails[Math.max(0, thumbIndex)] || '';
-                                  
-                                  elements.push(
-                                    <div 
-                                      key={i} 
-                                      className="h-full shrink-0 border-r border-black/20"
-                                      style={{ 
-                                        width: `${THUMB_WIDTH}px`,
-                                        backgroundImage: `url(${src})`,
-                                        backgroundSize: 'cover',
-                                        backgroundPosition: 'center' 
-                                      }}
-                                    />
-                                  );
-                                }
-                                return elements;
-                              })()}
-                            </div>
-                          )}
+                          <div className="absolute inset-x-0 top-0 h-[18px] bg-black/80 pointer-events-none" />
+                          <div className="absolute inset-x-0 bottom-0 h-[18px] bg-black/80 pointer-events-none" />
+                          <TimelineFilmstrip
+                            clip={clip}
+                            clipWidthPx={clipWidthPx}
+                            thumbnails={thumbnails}
+                            isGeneratingThumbnails={isGeneratingThumbnails}
+                          />
 
                           {/* Clip Info */}
-                          <div className="px-3 py-1.5 flex flex-col gap-0.5 select-none pointer-events-none relative z-10 bg-gradient-to-b from-black/60 to-transparent">
-                            <div className="flex items-center gap-1.5">
+                          <div className="px-2 py-1.5 flex flex-col gap-1 select-none pointer-events-none relative z-10">
+                            <div className="flex w-fit max-w-[calc(100%-8px)] items-center gap-1.5 rounded-[4px] border border-white/10 bg-black/75 px-2 py-0.5 shadow-sm">
                               <div className="w-1.5 h-1.5 rounded-full shrink-0 shadow-sm" style={{ backgroundColor: color.solid }} />
-                              <span className="text-[10px] font-bold text-white uppercase tracking-tighter truncate" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
+                              <span className="text-[9px] font-bold text-white uppercase tracking-normal truncate">
                                 Clip {index + 1}
                               </span>
                             </div>
-                            <span className="text-[9px] text-white/80 font-mono" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
+                            <span className="w-fit max-w-[calc(100%-8px)] rounded-[4px] bg-black/55 px-1.5 py-0.5 text-[8px] text-white/75 font-mono truncate">
                               {formatTime(clip.trimStart)} → {formatTime(clip.trimEnd)} ({formatTime(clipDur)})
                             </span>
                           </div>

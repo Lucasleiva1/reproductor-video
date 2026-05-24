@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { generateThumbnails } from "@/utils/thumbnailGenerator";
 import { getContentDuration, rippleDeleteClip } from "@/utils/timeline";
+import type { VideoImageAnalysis } from "@/utils/videoAnalyzer";
 
 export type Resolution = { w: number; h: number; name: string };
 export const RESOLUTIONS: Resolution[] = [
@@ -26,6 +27,7 @@ export type AppMode = "editor" | "player";
 export interface ColorCorrection {
   enabled: boolean;
   brightness: number;
+  highlights: number;
   contrast: number;
   saturation: number;
   shadows: number;
@@ -35,6 +37,7 @@ export interface ColorCorrection {
 export const DEFAULT_COLOR_CORRECTION: ColorCorrection = {
   enabled: false,
   brightness: 0,
+  highlights: 0,
   contrast: 0,
   saturation: 0,
   shadows: 0,
@@ -54,6 +57,8 @@ interface TimelineState {
   posX: number; // 0 to 100 normalized, 50 is center
   posY: number; // 0 to 100 normalized, 50 is center
   colorCorrection: ColorCorrection;
+  imageAnalysis: VideoImageAnalysis | null;
+  showOriginalPreview: boolean;
   playing: boolean;
   resolution: Resolution;
 
@@ -78,6 +83,8 @@ interface TimelineState {
   setPosX: (x: number) => void;
   setPosY: (y: number) => void;
   setColorCorrection: (updates: Partial<ColorCorrection>) => void;
+  setImageAnalysis: (analysis: VideoImageAnalysis | null) => void;
+  setShowOriginalPreview: (showOriginal: boolean) => void;
   resetColorCorrection: () => void;
   setPlaying: (playing: boolean) => void;
   setResolution: (res: Resolution) => void;
@@ -112,6 +119,7 @@ interface TimelineState {
 
   thumbnails: string[];
   isGeneratingThumbnails: boolean;
+  ensureThumbnails: () => void;
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -146,6 +154,8 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   posX: 50, // 50 = center
   posY: 50, // 50 = center
   colorCorrection: DEFAULT_COLOR_CORRECTION,
+  imageAnalysis: null,
+  showOriginalPreview: false,
   playing: false,
   resolution: RESOLUTIONS[2],
 
@@ -166,6 +176,51 @@ export const useTimeline = create<TimelineState>((set, get) => ({
 
   thumbnails: [],
   isGeneratingThumbnails: false,
+  ensureThumbnails: () => {
+    const { videoUrl, clips, thumbnails, isGeneratingThumbnails, appMode } = get();
+    const sourceDuration = clips[0]?.sourceDuration ?? 0;
+    if (!videoUrl || sourceDuration <= 0 || appMode !== "editor" || isGeneratingThumbnails) return;
+
+    const targetCount = Math.min(96, Math.max(24, Math.ceil(sourceDuration / 1.5)));
+    const readyCount = thumbnails.filter(Boolean).length;
+    if (readyCount >= Math.ceil(targetCount * 0.85)) return;
+
+    const tokenAtStart = thumbnailGenerationToken;
+    const sourceVideoUrl = videoUrl;
+    set({ isGeneratingThumbnails: true, thumbnails: readyCount > 0 ? thumbnails : [] });
+
+    generateThumbnails({
+      videoUrl,
+      duration: sourceDuration,
+      maxThumbnails: targetCount,
+      thumbnailWidth: 192,
+      thumbnailQuality: 0.78,
+      shouldAbort: () => {
+        const state = get();
+        return (
+          tokenAtStart !== thumbnailGenerationToken ||
+          state.videoUrl !== sourceVideoUrl ||
+          state.appMode !== "editor"
+        );
+      },
+      onThumbnail: (index, _total, dataUrl) => {
+        set((state) => {
+          if (
+            tokenAtStart !== thumbnailGenerationToken ||
+            state.videoUrl !== sourceVideoUrl
+          ) {
+            return state;
+          }
+          const nextThumbnails = [...state.thumbnails];
+          nextThumbnails[index] = dataUrl;
+          return { thumbnails: nextThumbnails };
+        });
+      }
+    }).finally(() => {
+      if (tokenAtStart !== thumbnailGenerationToken) return;
+      set({ isGeneratingThumbnails: false });
+    });
+  },
 
   past: [],
   future: [],
@@ -220,6 +275,8 @@ export const useTimeline = create<TimelineState>((set, get) => ({
       currentTime: 0,
       clips: [], // reset clips until we know the duration
       playing: false,
+      imageAnalysis: null,
+      showOriginalPreview: false,
       thumbnails: [],
       isGeneratingThumbnails: false,
     }));
@@ -241,6 +298,8 @@ export const useTimeline = create<TimelineState>((set, get) => ({
         currentTime: 0,
         clips: [],
         playing: autoplay,
+        imageAnalysis: null,
+        showOriginalPreview: false,
         thumbnails: [],
         isGeneratingThumbnails: false
       }));
@@ -252,7 +311,7 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   setAppMode: (appMode) => set({ appMode }),
   
   setDuration: (duration) => {
-    const { videoUrl, clips, thumbnails, isGeneratingThumbnails } = get();
+    const { videoUrl, clips } = get();
     // If we just loaded a video and don't have clips, create the first main clip spanning the whole video.
     if (clips.length === 0 && videoUrl) {
       set({
@@ -268,40 +327,6 @@ export const useTimeline = create<TimelineState>((set, get) => ({
         }]
       });
 
-      if (duration > 0 && !isGeneratingThumbnails && thumbnails.length === 0) {
-        const tokenAtStart = thumbnailGenerationToken;
-        const sourceVideoUrl = videoUrl;
-        set({ isGeneratingThumbnails: true });
-        generateThumbnails({
-          videoUrl,
-          duration,
-          maxThumbnails: 60, // Sufficient for wide screens
-          shouldAbort: () => {
-            const state = get();
-            return (
-              tokenAtStart !== thumbnailGenerationToken ||
-              state.videoUrl !== sourceVideoUrl
-            );
-          },
-          onThumbnail: (index, _total, dataUrl) => {
-            set((state) => {
-              if (
-                tokenAtStart !== thumbnailGenerationToken ||
-                state.videoUrl !== sourceVideoUrl
-              ) {
-                return state;
-              }
-              // Replace entire array with progressive push to avoid mutating references safely
-              const nextThumbnails = [...state.thumbnails];
-              nextThumbnails[index] = dataUrl;
-              return { thumbnails: nextThumbnails };
-            });
-          }
-        }).finally(() => {
-          if (tokenAtStart !== thumbnailGenerationToken) return;
-          set({ isGeneratingThumbnails: false });
-        });
-      }
     } else {
       // If we are dynamically computing timeline duration based on clips
       set({ duration });
@@ -377,9 +402,12 @@ export const useTimeline = create<TimelineState>((set, get) => ({
         ...state.colorCorrection,
         ...updates,
       },
+      showOriginalPreview: updates.enabled === false ? false : state.showOriginalPreview,
     }));
   },
-  resetColorCorrection: () => set({ colorCorrection: DEFAULT_COLOR_CORRECTION }),
+  setImageAnalysis: (imageAnalysis) => set({ imageAnalysis }),
+  setShowOriginalPreview: (showOriginalPreview) => set({ showOriginalPreview }),
+  resetColorCorrection: () => set({ colorCorrection: DEFAULT_COLOR_CORRECTION, showOriginalPreview: false }),
   setPlaying: (playing) => {
     const current = get().playing;
     if (current !== playing) set({ playing });

@@ -13,14 +13,22 @@ const buildColorFilterChain = (colorCorrection?: ColorCorrection) => {
   const contrast = clamp(1 + colorCorrection.contrast / 100, 0.5, 1.5);
   const saturation = clamp(1 + colorCorrection.saturation / 100, 0.5, 1.5);
   const shadowGamma = clamp(1 + colorCorrection.shadows / 120, 0.6, 1.45);
+  const highlights = clamp(colorCorrection.highlights / 50, -1, 1);
+  const highlightPoint = clamp(0.85 + highlights * 0.13, 0.68, 0.98);
   const temperature = clamp(colorCorrection.temperature / 300, -0.18, 0.18);
   const redGain = clamp(1 + temperature, 0.82, 1.18);
   const blueGain = clamp(1 - temperature, 0.82, 1.18);
 
-  return [
+  const filters = [
     `eq=brightness=${brightness.toFixed(3)}:contrast=${contrast.toFixed(3)}:saturation=${saturation.toFixed(3)}:gamma=${shadowGamma.toFixed(3)}`,
-    `colorchannelmixer=rr=${redGain.toFixed(3)}:gg=1.000:bb=${blueGain.toFixed(3)}`,
-  ].join(",");
+  ];
+
+  if (Math.abs(colorCorrection.highlights) > 0.01) {
+    filters.push(`curves=all='0/0 0.55/0.55 0.85/${highlightPoint.toFixed(3)} 1/1'`);
+  }
+
+  filters.push(`colorchannelmixer=rr=${redGain.toFixed(3)}:gg=1.000:bb=${blueGain.toFixed(3)}`);
+  return filters.join(",");
 };
 
 export function useFFmpeg() {

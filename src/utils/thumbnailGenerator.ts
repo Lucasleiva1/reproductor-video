@@ -3,6 +3,7 @@ export interface GenerateOptions {
   duration: number;
   maxThumbnails?: number;
   thumbnailWidth?: number;
+  thumbnailQuality?: number;
   onThumbnail?: (index: number, total: number, dataUrl: string) => void;
   shouldAbort?: () => boolean;
 }
@@ -11,7 +12,8 @@ export const generateThumbnails = async ({
   videoUrl,
   duration,
   maxThumbnails = 40,
-  thumbnailWidth = 100,
+  thumbnailWidth = 180,
+  thumbnailQuality = 0.78,
   onThumbnail,
   shouldAbort
 }: GenerateOptions): Promise<string[]> => {
@@ -56,7 +58,7 @@ export const generateThumbnails = async ({
         return reject(new Error('Canvas context no disponible'));
       }
 
-      // Calculate height based on video aspect ratio
+      // Preserve the source aspect and export enough detail for a crisp timeline strip.
       const aspect = video.videoHeight / video.videoWidth;
       canvas.width = thumbnailWidth;
       canvas.height = Math.floor(thumbnailWidth * aspect);
@@ -76,8 +78,9 @@ export const generateThumbnails = async ({
           return;
         }
 
-        // Set time. Offset slightly relative to step to avoid exact 0s issues
-        video.currentTime = (currentIndex * step) + (step / 2);
+        // Offset inside each segment and avoid seeking past the end on short clips.
+        const safeEndTime = Math.max(0, duration - 0.05);
+        video.currentTime = Math.min(safeEndTime, (currentIndex * step) + (step / 2));
       };
 
       video.onseeked = () => {
@@ -88,8 +91,7 @@ export const generateThumbnails = async ({
         // Draw the current frame to canvas
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         
-        // Export highly compressed JPEG
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.4);
+        const dataUrl = canvas.toDataURL('image/jpeg', thumbnailQuality);
         thumbnails.push(dataUrl);
 
         if (onThumbnail) {

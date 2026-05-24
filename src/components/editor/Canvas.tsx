@@ -8,8 +8,9 @@ import {
 } from "@/utils/timeline";
 import { motion, AnimatePresence } from "framer-motion";
 import React, { useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2, RotateCcw, X, Maximize2, Minimize2, Copy, PictureInPicture2, SlidersHorizontal, Repeat2, Eye, EyeOff } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2, RotateCcw, X, Maximize2, Copy, PictureInPicture2, SlidersHorizontal, Repeat2, Eye, EyeOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { analyzeVideoImage, type AnalysisProgress } from "@/utils/videoAnalyzer";
 
 const ReactPlayer = React.lazy(() => import("react-player"));
 
@@ -30,10 +31,13 @@ export default function Canvas() {
     appMode, setAppMode, videoUrl, clips, zoom, posX, posY, playing, setPlaying, 
     currentTime, setCurrentTime, duration, setDuration, 
     setVideoFile, resolution, canvasScale, setCanvasScale, videoPath,
-    isFullscreen, setIsFullscreen, colorCorrection, setColorCorrection, resetColorCorrection
+    isFullscreen, setIsFullscreen, colorCorrection, setColorCorrection, resetColorCorrection, imageAnalysis, setImageAnalysis,
+    showOriginalPreview, setShowOriginalPreview
   } = useTimeline();
   const playerRef = useRef<any>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const imageControlsRef = useRef<HTMLDivElement>(null);
+  const screenClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [volume, setVolume] = useState(0.8);
@@ -47,6 +51,10 @@ export default function Canvas() {
   const [editorControlsHidden, setEditorControlsHidden] = useState(false);
   const [isCompactWindow, setIsCompactWindow] = useState(false);
   const [isWebCompactWindow, setIsWebCompactWindow] = useState(false);
+  const [imageScanProgress, setImageScanProgress] = useState<AnalysisProgress | null>(null);
+  const imageScanPercent = imageScanProgress
+    ? Math.round((imageScanProgress.current / Math.max(1, imageScanProgress.total)) * 100)
+    : 0;
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fsTransitionChainRef = useRef<Promise<void>>(Promise.resolve());
   const sampleLoadTokenRef = useRef(0);
@@ -56,6 +64,25 @@ export default function Canvas() {
   const contentDuration = getContentDuration(clips);
   const playbackDuration = contentDuration > 0 ? contentDuration : duration;
   const isTimelineGap = clips.length > 0 && !activeTimelineClip && currentTime < contentDuration;
+
+  useEffect(() => {
+    if (!showImageControls) return;
+
+    const closeImageControlsOnOutsidePress = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && imageControlsRef.current?.contains(target)) return;
+      setShowImageControls(false);
+    };
+
+    document.addEventListener("pointerdown", closeImageControlsOnOutsidePress);
+    return () => document.removeEventListener("pointerdown", closeImageControlsOnOutsidePress);
+  }, [showImageControls]);
+
+  useEffect(() => {
+    return () => {
+      if (screenClickTimerRef.current) clearTimeout(screenClickTimerRef.current);
+    };
+  }, []);
 
   const getNativeWindow = useCallback(async () => {
     if (!hasTauriIpc()) {
@@ -171,6 +198,8 @@ export default function Canvas() {
       const { appWindow, PhysicalPosition, PhysicalSize } = await import("@tauri-apps/api/window");
       await appWindow.setAlwaysOnTop(false);
       await appWindow.setDecorations(!snapshot.fullscreen);
+      setAppMode("player");
+      setFsFreeMode(false);
       if (snapshot.fullscreen) {
         await appWindow.setFullscreen(true);
         setIsFullscreen(true);
@@ -189,7 +218,7 @@ export default function Canvas() {
       setIsCompactWindow(false);
       setIsWebCompactWindow(false);
     }
-  }, [setIsFullscreen]);
+  }, [setAppMode, setIsFullscreen]);
 
   const toggleCompactWindowMode = useCallback(async () => {
     if (isWebCompactWindow) {
@@ -207,6 +236,7 @@ export default function Canvas() {
       if (!hasTauriIpc()) {
         setAppMode("player");
         setFsFreeMode(false);
+        setShowImageControls(false);
         setIsFullscreen(false);
         setIsCompactWindow(true);
         setIsWebCompactWindow(true);
@@ -234,6 +264,10 @@ export default function Canvas() {
         maximized,
         fullscreen,
       };
+      setAppMode("player");
+      setFsFreeMode(false);
+      setShowImageControls(false);
+      setIsCompactWindow(true);
 
       if (fullscreen) {
         await appWindow.setFullscreen(false);
@@ -252,7 +286,7 @@ export default function Canvas() {
       const compactHeight = 260;
       const margin = 24;
 
-      await appWindow.setDecorations(true);
+      await appWindow.setDecorations(false);
       await appWindow.setAlwaysOnTop(true);
       await appWindow.setSize(new PhysicalSize(compactWidth, compactHeight));
       await appWindow.setPosition(
@@ -263,13 +297,11 @@ export default function Canvas() {
       );
       await appWindow.setFocus();
 
-      setAppMode("player");
-      setFsFreeMode(false);
       setIsFullscreen(false);
-      setIsCompactWindow(true);
     } catch (err) {
       console.error("Failed to enter compact window mode:", err);
       compactWindowSnapshotRef.current = null;
+      setIsCompactWindow(false);
 
       if (!hasTauriIpc()) {
         setAppMode("player");
@@ -285,9 +317,59 @@ export default function Canvas() {
     }
   }, [isWebCompactWindow, restoreCompactWindowMode, setAppMode, setIsFullscreen]);
 
+  const maximizeCompactWindow = useCallback(async () => {
+    if (!isCompactWindow) return;
+
+    try {
+      if (hasTauriIpc()) {
+        const { appWindow } = await import("@tauri-apps/api/window");
+        await appWindow.setAlwaysOnTop(false);
+      }
+      compactWindowSnapshotRef.current = null;
+      setIsCompactWindow(false);
+      setIsWebCompactWindow(false);
+      setAppMode("player");
+      setFsFreeMode(false);
+      await enterFullscreenNative();
+    } catch (err) {
+      console.error("Failed to maximize compact player:", err);
+      setFullscreenError("No se pudo maximizar el reproductor.");
+    }
+  }, [enterFullscreenNative, isCompactWindow, setAppMode]);
+
+  const closeCompactWindowToEditor = useCallback(async () => {
+    const snapshot = compactWindowSnapshotRef.current;
+    compactWindowSnapshotRef.current = null;
+    setIsCompactWindow(false);
+    setIsWebCompactWindow(false);
+    setAppMode("editor");
+    setFsFreeMode(false);
+    setIsFullscreen(false);
+
+    if (!hasTauriIpc()) return;
+
+    try {
+      const { appWindow, PhysicalPosition, PhysicalSize } = await import("@tauri-apps/api/window");
+      await appWindow.setAlwaysOnTop(false);
+      if (await appWindow.isFullscreen()) {
+        await appWindow.setFullscreen(false);
+      }
+      await appWindow.setDecorations(true);
+      if (snapshot?.fullscreen || snapshot?.maximized) {
+        await appWindow.maximize();
+      } else if (snapshot) {
+        await appWindow.setSize(new PhysicalSize(snapshot.size.width, snapshot.size.height));
+        await appWindow.setPosition(new PhysicalPosition(snapshot.position.x, snapshot.position.y));
+      }
+    } catch (err) {
+      console.error("Failed to close compact player:", err);
+    }
+  }, [setAppMode, setIsFullscreen]);
+
   const closePlayerMode = useCallback(() => {
-    if (compactWindowSnapshotRef.current) {
-      restoreCompactWindowMode().catch(() => {});
+    if (isCompactWindow) {
+      closeCompactWindowToEditor().catch(() => {});
+      return;
     }
     setIsCompactWindow(false);
     setIsWebCompactWindow(false);
@@ -296,7 +378,7 @@ export default function Canvas() {
     if (isFullscreen) {
       exitFullscreenNative().catch(() => {});
     }
-  }, [exitFullscreenNative, isFullscreen, restoreCompactWindowMode, setAppMode]);
+  }, [closeCompactWindowToEditor, exitFullscreenNative, isCompactWindow, isFullscreen, setAppMode]);
 
   // Listen for fullscreen and maximize changes
   useEffect(() => {
@@ -332,6 +414,13 @@ export default function Canvas() {
           const fs = await syncFullscreenState();
           
           if (!fs) {
+            if (compactWindowSnapshotRef.current) {
+              await appWindow.setDecorations(false);
+              useTimeline.getState().setAppMode("player");
+              setFsIdle(false);
+              setFsFreeMode(false);
+              return;
+            }
             // Restore decorations when exiting FS
             await appWindow.setDecorations(true);
             useTimeline.getState().setAppMode("editor");
@@ -369,7 +458,7 @@ export default function Canvas() {
     idleTimerRef.current = setTimeout(() => setFsIdle(true), 4000);
   }, []);
 
-  const isPlayerSurface = isFullscreen || appMode === "player";
+  const isPlayerSurface = isFullscreen || isCompactWindow || appMode === "player";
 
   useEffect(() => {
     if (!isPlayerSurface) return;
@@ -534,33 +623,62 @@ export default function Canvas() {
   const effectiveTranslateX = isFixedMode ? 0 : translateX;
   const effectiveTranslateY = isFixedMode ? 0 : translateY;
   const effectiveCanvasScale = isFixedMode ? 1 : canvasScale;
-  const previewFilter = colorCorrection.enabled
+  const previewColorEnabled = colorCorrection.enabled && !showOriginalPreview;
+  const previewFilter = previewColorEnabled
     ? [
         `brightness(${1 + colorCorrection.brightness / 100})`,
         `contrast(${1 + colorCorrection.contrast / 100})`,
         `saturate(${1 + colorCorrection.saturation / 100})`,
       ].join(" ")
     : undefined;
-  const shadowLiftOpacity = colorCorrection.enabled && colorCorrection.shadows > 0
+  const shadowLiftOpacity = previewColorEnabled && colorCorrection.shadows > 0
     ? Math.min(colorCorrection.shadows / 120, 0.42)
     : 0;
-  const shadowCrushOpacity = colorCorrection.enabled && colorCorrection.shadows < 0
+  const shadowCrushOpacity = previewColorEnabled && colorCorrection.shadows < 0
     ? Math.min(Math.abs(colorCorrection.shadows) / 140, 0.36)
     : 0;
-  const temperatureOpacity = colorCorrection.enabled
+  const highlightLiftOpacity = previewColorEnabled && colorCorrection.highlights > 0
+    ? Math.min(colorCorrection.highlights / 155, 0.34)
+    : 0;
+  const highlightRecoverOpacity = previewColorEnabled && colorCorrection.highlights < 0
+    ? Math.min(Math.abs(colorCorrection.highlights) / 180, 0.28)
+    : 0;
+  const temperatureOpacity = previewColorEnabled
     ? Math.min(Math.abs(colorCorrection.temperature) / 120, 0.36)
     : 0;
   const temperatureColor = colorCorrection.temperature >= 0
     ? "rgba(255, 170, 85, 1)"
     : "rgba(95, 150, 255, 1)";
   const applyColorCorrection = (updates: Partial<typeof colorCorrection>) => {
+    setShowOriginalPreview(false);
     setColorCorrection({ enabled: true, ...updates });
   };
+  const applyColorPreset = (values: typeof colorCorrection) => {
+    setShowOriginalPreview(false);
+    setColorCorrection(values);
+  };
+  const scanVideoImage = async () => {
+    if (!videoUrl || imageScanProgress) return;
+    try {
+      setImageScanProgress({ current: 0, total: 1, phase: "preparing", message: "Preparando lectura del video" });
+      const analysis = await analyzeVideoImage({
+        videoUrl,
+        duration: clips[0]?.sourceDuration ?? duration,
+        samples: 144,
+        onProgress: setImageScanProgress,
+      });
+      setImageAnalysis(analysis);
+    } catch (error) {
+      console.error("No se pudo escanear la imagen:", error);
+    } finally {
+      setImageScanProgress(null);
+    }
+  };
   const colorPresets = [
-    { label: "Normal", values: { enabled: false, brightness: 0, contrast: 0, saturation: 0, shadows: 0, temperature: 0 } },
-    { label: "Claro", values: { enabled: true, brightness: 8, contrast: 6, saturation: 4, shadows: 18, temperature: 2 } },
-    { label: "Vivo", values: { enabled: true, brightness: 3, contrast: 12, saturation: 18, shadows: 8, temperature: 4 } },
-    { label: "Cine", values: { enabled: true, brightness: -2, contrast: 10, saturation: -4, shadows: 12, temperature: -5 } },
+    { label: "Normal", values: { enabled: false, brightness: 0, highlights: 0, contrast: 0, saturation: 0, shadows: 0, temperature: 0 } },
+    { label: "Claro", values: { enabled: true, brightness: 8, highlights: 14, contrast: 6, saturation: 4, shadows: 18, temperature: 2 } },
+    { label: "Vivo", values: { enabled: true, brightness: 3, highlights: 10, contrast: 12, saturation: 18, shadows: 8, temperature: 4 } },
+    { label: "Cine", values: { enabled: true, brightness: -2, highlights: -8, contrast: 10, saturation: -4, shadows: 12, temperature: -5 } },
   ];
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -616,14 +734,34 @@ export default function Canvas() {
     setCanvasScale(newScale);
   };
 
-  const handleCompactWindowControl = useCallback((e: React.SyntheticEvent) => {
-    const target = e.target as HTMLElement | null;
-    if (!target?.closest('[data-compact-window-button="true"]')) return;
+  const handleScreenClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    if (screenClickTimerRef.current) return;
 
-    e.stopPropagation();
-    e.preventDefault();
-    toggleCompactWindowMode().catch(() => {});
-  }, [toggleCompactWindowMode]);
+    screenClickTimerRef.current = setTimeout(() => {
+      screenClickTimerRef.current = null;
+      const state = useTimeline.getState();
+      state.setPlaying(!state.playing);
+    }, 180);
+  };
+
+  const handleScreenDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    if (screenClickTimerRef.current) {
+      clearTimeout(screenClickTimerRef.current);
+      screenClickTimerRef.current = null;
+    }
+    if (isCompactWindow) {
+      maximizeCompactWindow().catch(() => {});
+      return;
+    }
+    if (isFullscreen) {
+      closePlayerMode();
+      return;
+    }
+    setAppMode("player");
+    enterFullscreenNative().catch(() => {});
+  };
 
   return (
     <div 
@@ -637,14 +775,6 @@ export default function Canvas() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onWheel={handleWheel}
-      onPointerDownCapture={handleCompactWindowControl}
-      onClickCapture={handleCompactWindowControl}
-      onDoubleClick={() => {
-        if (!isFullscreen) {
-          setAppMode("player");
-          enterFullscreenNative().catch(() => {});
-        }
-      }}
       onMouseMove={isPlayerSurface ? resetIdleTimer : undefined}
       style={{ cursor: isPlayerSurface && fsIdle && !isWebCompactWindow ? 'none' : undefined }}
     >
@@ -656,6 +786,9 @@ export default function Canvas() {
           >
             {/* The Actual "Screen" / Video Boundary */}
             <motion.div 
+              data-testid="video-screen"
+              onClick={handleScreenClick}
+              onDoubleClick={handleScreenDoubleClick}
               className={`relative flex items-center justify-center overflow-hidden shrink-0 transition-shadow duration-300 ${isFixedMode ? 'bg-black' : 'rounded-[4px] bg-black ring-[1px] ring-white/10 shadow-2xl'}`}
               animate={{
                 scale: effectiveCanvasScale
@@ -705,7 +838,7 @@ export default function Canvas() {
                     }}
                   />
                 </React.Suspense>
-                {colorCorrection.enabled && (shadowLiftOpacity > 0 || shadowCrushOpacity > 0 || temperatureOpacity > 0) && (
+                {previewColorEnabled && (shadowLiftOpacity > 0 || shadowCrushOpacity > 0 || highlightLiftOpacity > 0 || highlightRecoverOpacity > 0 || temperatureOpacity > 0) && (
                   <div className="absolute inset-0 pointer-events-none overflow-hidden">
                     {shadowLiftOpacity > 0 && (
                       <div
@@ -724,6 +857,26 @@ export default function Canvas() {
                           background: "rgba(0,0,0,1)",
                           mixBlendMode: "multiply",
                           opacity: shadowCrushOpacity,
+                        }}
+                      />
+                    )}
+                    {highlightLiftOpacity > 0 && (
+                      <div
+                        className="absolute inset-0"
+                        style={{
+                          background: "rgba(255,255,255,1)",
+                          mixBlendMode: "soft-light",
+                          opacity: highlightLiftOpacity,
+                        }}
+                      />
+                    )}
+                    {highlightRecoverOpacity > 0 && (
+                      <div
+                        className="absolute inset-0"
+                        style={{
+                          background: "rgba(0,0,0,1)",
+                          mixBlendMode: "soft-light",
+                          opacity: highlightRecoverOpacity,
                         }}
                       />
                     )}
@@ -748,7 +901,7 @@ export default function Canvas() {
                 <div className="absolute top-4 sm:top-6 right-4 sm:right-6 left-4 sm:left-6 z-[80] flex items-center justify-between pointer-events-none">
                   {/* Left Controls (Player mode only) */}
                   <div className="flex items-center gap-2 pointer-events-auto">
-                    {isPlayerSurface && (
+                    {isPlayerSurface && !isCompactWindow && (
                       <motion.button
                         initial={{ opacity: 0, x: -10 }}
                         animate={{ opacity: 1, x: 0 }}
@@ -765,7 +918,7 @@ export default function Canvas() {
                     )}
                   </div>
 
-                  {/* Right Window Controls (Minimize, Window Mode, Close) */}
+                  {/* Right Window Controls (Compact, Window Mode, Close) */}
                   {isPlayerSurface && (
                     <motion.div
                       initial={{ opacity: 0, x: 10, y: -10 }}
@@ -775,15 +928,8 @@ export default function Canvas() {
                     >
                       {/* Compact Window Button */}
                       <button
-                        data-compact-window-button="true"
-                        onPointerDown={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          toggleCompactWindowMode().catch(() => {});
-                        }}
                         onClick={(e) => {
                           e.stopPropagation();
-                          e.preventDefault();
                           toggleCompactWindowMode().catch(() => {});
                         }}
                         onDoubleClick={(e) => e.stopPropagation()}
@@ -797,29 +943,15 @@ export default function Canvas() {
                         <PictureInPicture2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                       </button>
 
-                      {/* Minimize Button */}
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          try {
-                            const { appWindow } = await import('@tauri-apps/api/window');
-                            await appWindow.minimize();
-                          } catch (err) {
-                            console.error("Failed to minimize window:", err);
-                          }
-                        }}
-                        onDoubleClick={(e) => e.stopPropagation()}
-                        className="p-2 sm:p-2.5 bg-black/40 hover:bg-zinc-700/80 backdrop-blur-md rounded-full text-white/70 hover:text-white transition-all shadow-xl border border-white/10 active:scale-90"
-                        title={t('minimize_app')}
-                      >
-                        <Minimize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                      </button>
-
                       {/* Window Mode Toggle */}
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
                           try {
+                            if (isCompactWindow) {
+                              await maximizeCompactWindow();
+                              return;
+                            }
                             if (compactWindowSnapshotRef.current) {
                               await restoreCompactWindowMode();
                             }
@@ -837,9 +969,9 @@ export default function Canvas() {
                         }}
                         onDoubleClick={(e) => e.stopPropagation()}
                         className="p-2 sm:p-2.5 bg-black/40 hover:bg-zinc-700/80 backdrop-blur-md rounded-full text-white/70 hover:text-white transition-all shadow-xl border border-white/10 active:scale-90"
-                        title={isMaximized ? 'Restaurar' : t('window_mode')}
+                        title={isCompactWindow ? 'Maximizar reproductor' : isMaximized ? 'Restaurar' : t('window_mode')}
                       >
-                        {isMaximized ? <Copy className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
+                        {isCompactWindow ? <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : isMaximized ? <Copy className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
                       </button>
 
                       {/* Close Player Button */}
@@ -985,6 +1117,7 @@ export default function Canvas() {
                       </button>
                       <button 
                         onClick={() => setPlaying(!playing)} 
+                        aria-label={playing ? "Pausar" : "Reproducir"}
                         className="bg-blue-600 hover:bg-blue-500 text-white w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg hover:shadow-blue-500/50 active:scale-95"
                       >
                         {playing ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current translate-x-0.5" />}
@@ -1011,7 +1144,10 @@ export default function Canvas() {
                       </button>
                     )}
 
+                    {!isCompactWindow && (
+                    <>
                     <div
+                      ref={imageControlsRef}
                       className="relative"
                       onClick={(e) => e.stopPropagation()}
                       onDoubleClick={(e) => e.stopPropagation()}
@@ -1035,25 +1171,18 @@ export default function Canvas() {
                           exit={{ opacity: 0, y: 8, scale: 0.96 }}
                           className="absolute right-0 bottom-12 w-[min(320px,calc(100vw-24px))] rounded-lg border border-white/10 bg-black/85 backdrop-blur-xl shadow-2xl p-4 text-white"
                         >
-                          <div className="flex items-center justify-between gap-3 mb-3">
+                          <div className="mb-3">
                             <div>
                               <div className="text-sm font-semibold">Mejorar imagen</div>
-                              <div className="text-[11px] text-white/50">Preview rapido y export opcional</div>
+                              <div className="text-[11px] text-white/50">Los ajustes se exportan con el video</div>
                             </div>
-                            <button
-                              onClick={() => setColorCorrection({ enabled: !colorCorrection.enabled })}
-                              className={`relative w-9 h-5 rounded-full transition-colors ${colorCorrection.enabled ? 'bg-blue-500' : 'bg-white/20'}`}
-                              title={colorCorrection.enabled ? "Desactivar" : "Activar"}
-                            >
-                              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${colorCorrection.enabled ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
-                            </button>
                           </div>
 
                           <div className="grid grid-cols-4 gap-1.5 mb-4">
                             {colorPresets.map((preset) => (
                               <button
                                 key={preset.label}
-                                onClick={() => setColorCorrection(preset.values)}
+                                onClick={() => applyColorPreset(preset.values)}
                                 className="rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-white/75 hover:bg-white/10 hover:text-white transition-colors"
                               >
                                 {preset.label}
@@ -1061,8 +1190,61 @@ export default function Canvas() {
                             ))}
                           </div>
 
+                          <div className="mb-4 grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={scanVideoImage}
+                              disabled={!videoUrl || !!imageScanProgress}
+                              className="flex items-center justify-center rounded-md border border-blue-300/25 bg-blue-300/10 px-2 py-2 text-[11px] font-semibold text-blue-200 transition-colors hover:bg-blue-300/15 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {imageScanProgress
+                                ? imageScanProgress.phase === "computing"
+                                  ? "Finalizando"
+                                  : `Escaneando ${imageScanPercent}%`
+                                : "Escanear video"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowOriginalPreview(!showOriginalPreview)}
+                              disabled={!colorCorrection.enabled}
+                              className={`flex items-center justify-center rounded-md border px-2 py-2 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                showOriginalPreview
+                                  ? "border-amber-300/35 bg-amber-300/15 text-amber-100 hover:bg-amber-300/20"
+                                  : "border-white/15 bg-white/5 text-white/75 hover:bg-white/10 hover:text-white"
+                              }`}
+                            >
+                              {showOriginalPreview ? "Ver con efecto" : "Ver original"}
+                            </button>
+                          </div>
+                          {imageScanProgress && (
+                            <div className="mb-4 space-y-1.5 rounded-md border border-blue-300/15 bg-blue-300/5 p-2.5">
+                              <div className="h-2 overflow-hidden rounded-full bg-blue-950/70">
+                                <div
+                                  className="h-full rounded-full bg-blue-400 transition-[width] duration-150"
+                                  style={{ width: `${imageScanPercent}%` }}
+                                />
+                              </div>
+                              <div className="flex items-center justify-between text-[10px] text-blue-100/70">
+                                <span>{imageScanProgress.message}</span>
+                                <span className="font-mono">{imageScanProgress.current}/{imageScanProgress.total}</span>
+                              </div>
+                            </div>
+                          )}
+                          {imageAnalysis && !imageScanProgress && (
+                            <div className="mb-4 space-y-2 rounded-md border border-emerald-300/20 bg-emerald-300/5 p-2.5">
+                              <div className="text-[11px] font-semibold text-emerald-200">Analisis listo - video sin modificar</div>
+                              <div className="grid grid-cols-3 gap-2 text-center text-[10px] text-white/55">
+                                <div><div className="font-mono text-white/85">{imageAnalysis.shadowsPercent}%</div>Negros</div>
+                                <div><div className="font-mono text-white/85">{imageAnalysis.highlightsPercent}%</div>Luces</div>
+                                <div><div className="font-mono text-white/85">{imageAnalysis.averageLight}%</div>Media</div>
+                              </div>
+                              <div className="text-[10px] text-white/45">{imageAnalysis.sampledFrames} escenas revisadas para ajustes manuales.</div>
+                            </div>
+                          )}
+
                           {[
                             ["Brillo", "brightness", -50, 50],
+                            ["Luces", "highlights", -50, 50],
                             ["Sombras", "shadows", -50, 50],
                             ["Contraste", "contrast", -50, 50],
                             ["Saturacion", "saturation", -50, 50],
@@ -1120,6 +1302,8 @@ export default function Canvas() {
                         {appMode === "player" ? 'Editar' : 'Pantalla Completa'}
                       </span>
                     </button>
+                    </>
+                    )}
                     </div>
                   </div>
                 </motion.div>

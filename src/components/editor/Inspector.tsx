@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "next-themes";
 import { motion, AnimatePresence } from "framer-motion";
+import { analyzeVideoImage, type AnalysisProgress } from "@/utils/videoAnalyzer";
 
 const ScrubbableNumber = ({ value, onChange, min, max, step = 1, format = (v: number) => v.toString() }: any) => {
   const handlePointerDown = (e: React.PointerEvent<HTMLSpanElement>) => {
@@ -66,13 +67,19 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
     bladeModeLimit, setBladeModeLimit,
     timelineTimeMode, setTimelineTimeMode,
     showTips, setShowTips,
-    colorCorrection, setColorCorrection, resetColorCorrection
+    colorCorrection, setColorCorrection, resetColorCorrection, imageAnalysis, setImageAnalysis,
+    showOriginalPreview, setShowOriginalPreview,
+    videoUrl, duration
   } = useTimeline();
   const { theme, setTheme } = useTheme();
   const [showSettings, setShowSettings] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [popoverPos, setPopoverPos] = useState({ top: 0, left: 0 });
+  const [imageScanProgress, setImageScanProgress] = useState<AnalysisProgress | null>(null);
+  const imageScanPercent = imageScanProgress
+    ? Math.round((imageScanProgress.current / Math.max(1, imageScanProgress.total)) * 100)
+    : 0;
 
   const [devLinkIndex, setDevLinkIndex] = useState(0);
 
@@ -89,14 +96,37 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
   ];
 
   const applyColorCorrection = (updates: Partial<typeof colorCorrection>) => {
+    setShowOriginalPreview(false);
     setColorCorrection({ enabled: true, ...updates });
+  };
+  const applyColorPreset = (values: typeof colorCorrection) => {
+    setShowOriginalPreview(false);
+    setColorCorrection(values);
+  };
+
+  const scanVideoImage = async () => {
+    if (!videoUrl || imageScanProgress) return;
+    try {
+      setImageScanProgress({ current: 0, total: 1, phase: "preparing", message: "Preparando lectura del video" });
+      const analysis = await analyzeVideoImage({
+        videoUrl,
+        duration,
+        samples: 144,
+        onProgress: setImageScanProgress,
+      });
+      setImageAnalysis(analysis);
+    } catch (error) {
+      console.error("No se pudo escanear la imagen:", error);
+    } finally {
+      setImageScanProgress(null);
+    }
   };
 
   const colorPresets = [
-    { label: "Normal", values: { enabled: false, brightness: 0, contrast: 0, saturation: 0, shadows: 0, temperature: 0 } },
-    { label: "Mas claro", values: { enabled: true, brightness: 8, contrast: 6, saturation: 4, shadows: 18, temperature: 2 } },
-    { label: "Mas vivo", values: { enabled: true, brightness: 3, contrast: 12, saturation: 18, shadows: 8, temperature: 4 } },
-    { label: "Cine suave", values: { enabled: true, brightness: -2, contrast: 10, saturation: -4, shadows: 12, temperature: -5 } },
+    { label: "Normal", values: { enabled: false, brightness: 0, highlights: 0, contrast: 0, saturation: 0, shadows: 0, temperature: 0 } },
+    { label: "Mas claro", values: { enabled: true, brightness: 8, highlights: 14, contrast: 6, saturation: 4, shadows: 18, temperature: 2 } },
+    { label: "Mas vivo", values: { enabled: true, brightness: 3, highlights: 10, contrast: 12, saturation: 18, shadows: 8, temperature: 4 } },
+    { label: "Cine suave", values: { enabled: true, brightness: -2, highlights: -8, contrast: 10, saturation: -4, shadows: 12, temperature: -5 } },
   ];
 
   // Calculate popover position when opening
@@ -439,25 +469,22 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
       </div>
 
       <div className="border-t border-border/50 pt-5 space-y-5">
-        <div className="flex items-center justify-between gap-3">
+        <div>
           <div>
             <div className="text-sm font-semibold">Imagen</div>
-            <div className="text-xs text-muted-foreground">Mejorar color sin afectar la carga</div>
+            <div className="text-xs text-muted-foreground">Los ajustes se aplican al video exportado</div>
           </div>
-          <ToggleSwitch
-            checked={colorCorrection.enabled}
-            onChange={(enabled) => setColorCorrection({ enabled })}
-          />
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           {colorPresets.map((preset) => (
             <button
               key={preset.label}
-              onClick={() => setColorCorrection(preset.values)}
+              onClick={() => applyColorPreset(preset.values)}
               className={`px-3 py-2 rounded-lg border text-[11px] font-medium transition-all ${
                 colorCorrection.enabled === preset.values.enabled &&
                 colorCorrection.brightness === preset.values.brightness &&
+                colorCorrection.highlights === preset.values.highlights &&
                 colorCorrection.contrast === preset.values.contrast &&
                 colorCorrection.saturation === preset.values.saturation &&
                 colorCorrection.shadows === preset.values.shadows &&
@@ -471,13 +498,73 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
           ))}
         </div>
 
-        <div className={`space-y-4 transition-opacity ${colorCorrection.enabled ? 'opacity-100' : 'opacity-55'}`}>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={scanVideoImage}
+              disabled={!videoUrl || !!imageScanProgress}
+              className="rounded-lg border border-blue-400/30 bg-blue-400/10 px-2 py-2 text-[11px] font-semibold text-blue-300 transition-colors hover:bg-blue-400/15 hover:text-blue-200 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {imageScanProgress
+                ? imageScanProgress.phase === "computing"
+                  ? "Finalizando"
+                  : `Escaneando ${imageScanPercent}%`
+                : "Escanear video"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowOriginalPreview(!showOriginalPreview)}
+              disabled={!colorCorrection.enabled}
+              className={`rounded-lg border px-2 py-2 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                showOriginalPreview
+                  ? "border-amber-400/35 bg-amber-400/15 text-amber-300 hover:bg-amber-400/20"
+                  : "border-border/50 bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+              }`}
+            >
+              {showOriginalPreview ? "Ver con efecto" : "Ver original"}
+            </button>
+          </div>
+          {imageScanProgress && (
+            <div className="space-y-1.5 rounded-lg border border-blue-400/20 bg-blue-400/5 p-2.5">
+              <div className="h-2 overflow-hidden rounded-full bg-blue-950/60">
+                <div
+                  className="h-full rounded-full bg-blue-400 transition-[width] duration-150"
+                  style={{ width: `${imageScanPercent}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-blue-200/75">
+                <span>{imageScanProgress.message}</span>
+                <span className="font-mono">{imageScanProgress.current}/{imageScanProgress.total}</span>
+              </div>
+            </div>
+          )}
+          {imageAnalysis && !imageScanProgress && (
+            <div className="space-y-2 rounded-lg border border-emerald-400/20 bg-emerald-400/5 p-2.5">
+              <div className="text-[11px] font-semibold text-emerald-400">Analisis listo - video sin modificar</div>
+              <div className="grid grid-cols-3 gap-2 text-center text-[10px] text-muted-foreground">
+                <div><div className="font-mono text-foreground">{imageAnalysis.shadowsPercent}%</div>Negros</div>
+                <div><div className="font-mono text-foreground">{imageAnalysis.highlightsPercent}%</div>Luces altas</div>
+                <div><div className="font-mono text-foreground">{imageAnalysis.averageLight}%</div>Luz media</div>
+              </div>
+              <div className="text-[10px] text-muted-foreground">{imageAnalysis.sampledFrames} escenas revisadas para orientar tus ajustes manuales.</div>
+            </div>
+          )}
+
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Brillo</span>
               <ScrubbableNumber value={colorCorrection.brightness} onChange={(brightness: number) => applyColorCorrection({ brightness })} min={-50} max={50} step={0.5} format={(v: number) => `${v.toFixed(0)}`} />
             </div>
             <Slider value={[colorCorrection.brightness]} min={-50} max={50} onValueChange={(val) => applyColorCorrection({ brightness: Array.isArray(val) ? val[0] : val as number })} />
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Luces</span>
+              <ScrubbableNumber value={colorCorrection.highlights} onChange={(highlights: number) => applyColorCorrection({ highlights })} min={-50} max={50} step={0.5} format={(v: number) => `${v.toFixed(0)}`} />
+            </div>
+            <Slider value={[colorCorrection.highlights]} min={-50} max={50} onValueChange={(val) => applyColorCorrection({ highlights: Array.isArray(val) ? val[0] : val as number })} />
           </div>
 
           <div className="space-y-3">
