@@ -8,7 +8,7 @@ import {
 } from "@/utils/timeline";
 import { motion, AnimatePresence } from "framer-motion";
 import React, { useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2, RotateCcw, X, Maximize2, Copy, PictureInPicture2, SlidersHorizontal, Repeat2, Eye, EyeOff } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2, RotateCcw, X, Maximize2, Copy, PictureInPicture2, SlidersHorizontal, Repeat2, Eye, EyeOff, Columns2, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { analyzeVideoImage, type AnalysisProgress } from "@/utils/videoAnalyzer";
 
@@ -61,6 +61,10 @@ export default function Canvas() {
   const hasNativeFullscreenRef = useRef<boolean | null>(null);
   const compactWindowSnapshotRef = useRef<CompactWindowSnapshot | null>(null);
   const isChangingWindowStateRef = useRef(false);
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareVideoUrl, setCompareVideoUrl] = useState<string | null>(null);
+  const comparePlayerRef = useRef<any>(null);
+  const compareFileInputRef = useRef<HTMLInputElement>(null);
   const activeTimelineClip = findActiveClip(clips, currentTime);
   const contentDuration = getContentDuration(clips);
   const playbackDuration = contentDuration > 0 ? contentDuration : duration;
@@ -126,6 +130,49 @@ export default function Canvas() {
     } catch (err) {
       console.error("Failed to save editor snapshot:", err);
     }
+  }, []);
+
+  const handleCompareFileSelectClick = useCallback(async () => {
+    if (hasTauriIpc()) {
+      try {
+        const { open } = await import("@tauri-apps/api/dialog");
+        const { convertFileSrc } = await import("@tauri-apps/api/tauri");
+        const selected = await open({
+          multiple: false,
+          filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm'] }]
+        });
+        if (selected && typeof selected === 'string') {
+          const url = convertFileSrc(selected);
+          setCompareVideoUrl(url);
+        }
+      } catch (err) {
+        console.error("Failed to open Tauri file dialog:", err);
+      }
+    } else {
+      compareFileInputRef.current?.click();
+    }
+  }, []);
+
+  const handleCompareFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setCompareVideoUrl(url);
+    }
+  }, []);
+
+  const clearCompareVideo = useCallback(() => {
+    setCompareVideoUrl(null);
+  }, []);
+
+  const toggleCompareMode = useCallback(() => {
+    setCompareMode((prev) => {
+      const next = !prev;
+      if (!next) {
+        setCompareVideoUrl(null);
+      }
+      return next;
+    });
   }, []);
 
   const syncFullscreenState = useCallback(async () => {
@@ -584,6 +631,26 @@ export default function Canvas() {
     }
   }, [currentTime, clips, playing, loopPlayback, setCurrentTime, setPlaying]);
 
+  // Keep visitor video playhead synchronized with the timeline clock.
+  useEffect(() => {
+    if (!comparePlayerRef.current || !compareVideoUrl) return;
+
+    try {
+      const currentInternalTime = comparePlayerRef.current.getCurrentTime();
+      if (Math.abs(currentInternalTime - currentTime) > 0.35) {
+        comparePlayerRef.current.seekTo(currentTime, "seconds");
+      }
+    } catch (_) {}
+  }, [currentTime, compareVideoUrl]);
+
+  // Deactivate comparison mode if the window is resized to compact mode.
+  useEffect(() => {
+    if (isCompactWindow && compareMode) {
+      setCompareMode(false);
+      setCompareVideoUrl(null);
+    }
+  }, [isCompactWindow, compareMode]);
+
   // The edited timeline is the master playback clock. ReactPlayer only renders
   // the source frame that corresponds to the current timeline time.
   useEffect(() => {
@@ -814,116 +881,295 @@ export default function Canvas() {
           <div 
             className={`w-full h-full relative flex flex-col items-center justify-center ${isFixedMode ? 'p-0' : 'p-[2vmin]'}`}
           >
-            {/* The Actual "Screen" / Video Boundary */}
-            <motion.div 
-              data-testid="video-screen"
-              onClick={handleScreenClick}
-              onDoubleClick={handleScreenDoubleClick}
-              className={`relative flex items-center justify-center overflow-hidden shrink-0 transition-shadow duration-300 ${isFixedMode ? 'bg-black' : 'rounded-[4px] bg-black ring-[1px] ring-white/10 shadow-2xl'}`}
-              animate={{
-                scale: effectiveCanvasScale
-              }}
-              transition={{ type: "spring", stiffness: 400, damping: 40 }}
-              style={isFixedMode ? {
-                width: '100%',
-                height: '100%',
-              } : {
-                aspectRatio: `${resolution.w} / ${resolution.h}`,
-                height: '100%',
-                maxHeight: '100%',
-                maxWidth: '100%',
-              }}
-            >
-              <motion.div
-                animate={{
-                  scale: effectiveScale,
-                  x: `${effectiveTranslateX}%`,
-                  y: `${effectiveTranslateY}%`,
-                }}
-                transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                className="w-full h-full flex items-center justify-center origin-center relative"
-              >
-                <React.Suspense fallback={<div className="w-full h-full bg-black/50 flex items-center justify-center animate-pulse"><MonitorPlay className="w-12 h-12 text-white/20" /></div>}>
-                  <ReactPlayer
-                    ref={playerRef}
-                    url={videoUrl}
-                    width="100%"
-                    height="100%"
-                    playing={playing && !!activeTimelineClip}
-                    volume={volume}
-                    muted={muted}
-                    onPlay={() => setPlaying(true)}
-                    onPause={() => {
-                      // Ignore technical pauses caused by timeline gaps; the timeline clock keeps running.
-                      if (playing && !isTimelineGap) setPlaying(false);
+            {compareMode ? (
+              <div className="w-full h-full flex flex-col md:flex-row gap-4 p-4 items-center justify-center pointer-events-auto">
+                {/* Left: Original Video */}
+                <div className="flex-1 w-full h-full flex flex-col items-center justify-center relative min-w-0">
+                  <div className="text-xs font-semibold text-white/50 mb-1.5 self-start">Original</div>
+                  <div
+                    onClick={handleScreenClick}
+                    onDoubleClick={handleScreenDoubleClick}
+                    className={`relative w-full h-full flex items-center justify-center overflow-hidden bg-black ring-[1px] ring-white/10 shadow-2xl rounded-lg ${isFixedMode ? 'p-0' : ''}`}
+                    style={isFixedMode ? {
+                      width: '100%',
+                      height: '100%',
+                    } : {
+                      aspectRatio: `${resolution.w} / ${resolution.h}`,
+                      height: '100%',
+                      maxHeight: '100%',
+                      maxWidth: '100%',
                     }}
-                    onDuration={(d: number) => setDuration(d)}
-                    onProgress={handleProgress}
-                    onError={() => setPlayerError("No se pudo cargar el video.")}
-                    progressInterval={100}
-                    style={{
-                      objectFit: isFixedMode ? 'contain' : 'contain',
-                      opacity: isTimelineGap ? 0 : 1,
-                      filter: previewFilter,
-                    }}
-                  />
-                </React.Suspense>
-                {previewColorEnabled && (shadowLiftOpacity > 0 || shadowCrushOpacity > 0 || highlightLiftOpacity > 0 || highlightRecoverOpacity > 0 || temperatureOpacity > 0) && (
-                  <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                    {shadowLiftOpacity > 0 && (
-                      <div
-                        className="absolute inset-0"
-                        style={{
-                          background: "rgba(255,255,255,1)",
-                          mixBlendMode: "screen",
-                          opacity: shadowLiftOpacity,
-                        }}
-                      />
-                    )}
-                    {shadowCrushOpacity > 0 && (
-                      <div
-                        className="absolute inset-0"
-                        style={{
-                          background: "rgba(0,0,0,1)",
-                          mixBlendMode: "multiply",
-                          opacity: shadowCrushOpacity,
-                        }}
-                      />
-                    )}
-                    {highlightLiftOpacity > 0 && (
-                      <div
-                        className="absolute inset-0"
-                        style={{
-                          background: "rgba(255,255,255,1)",
-                          mixBlendMode: "soft-light",
-                          opacity: highlightLiftOpacity,
-                        }}
-                      />
-                    )}
-                    {highlightRecoverOpacity > 0 && (
-                      <div
-                        className="absolute inset-0"
-                        style={{
-                          background: "rgba(0,0,0,1)",
-                          mixBlendMode: "soft-light",
-                          opacity: highlightRecoverOpacity,
-                        }}
-                      />
-                    )}
-                    {temperatureOpacity > 0 && (
-                      <div
-                        className="absolute inset-0"
-                        style={{
-                          background: temperatureColor,
-                          mixBlendMode: "soft-light",
-                          opacity: temperatureOpacity,
-                        }}
-                      />
+                  >
+                    <motion.div
+                      animate={{
+                        scale: effectiveScale,
+                        x: `${effectiveTranslateX}%`,
+                        y: `${effectiveTranslateY}%`,
+                      }}
+                      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                      className="w-full h-full flex items-center justify-center origin-center relative"
+                    >
+                      <React.Suspense fallback={<div className="w-full h-full bg-black/50 flex items-center justify-center animate-pulse"><MonitorPlay className="w-12 h-12 text-white/20" /></div>}>
+                        <ReactPlayer
+                          ref={playerRef}
+                          url={videoUrl}
+                          width="100%"
+                          height="100%"
+                          playing={playing && !!activeTimelineClip}
+                          volume={volume}
+                          muted={muted}
+                          onPlay={() => setPlaying(true)}
+                          onPause={() => {
+                            if (playing && !isTimelineGap) setPlaying(false);
+                          }}
+                          onDuration={(d: number) => setDuration(d)}
+                          onProgress={handleProgress}
+                          onError={() => setPlayerError("No se pudo cargar el video.")}
+                          progressInterval={100}
+                          style={{
+                            objectFit: 'contain',
+                            opacity: isTimelineGap ? 0 : 1,
+                            filter: previewFilter,
+                          }}
+                        />
+                      </React.Suspense>
+                      {previewColorEnabled && (shadowLiftOpacity > 0 || shadowCrushOpacity > 0 || highlightLiftOpacity > 0 || highlightRecoverOpacity > 0 || temperatureOpacity > 0) && (
+                        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                          {shadowLiftOpacity > 0 && (
+                            <div
+                              className="absolute inset-0"
+                              style={{
+                                background: "rgba(255,255,255,1)",
+                                mixBlendMode: "screen",
+                                opacity: shadowLiftOpacity,
+                              }}
+                            />
+                          )}
+                          {shadowCrushOpacity > 0 && (
+                            <div
+                              className="absolute inset-0"
+                              style={{
+                                background: "rgba(0,0,0,1)",
+                                mixBlendMode: "multiply",
+                                opacity: shadowCrushOpacity,
+                              }}
+                            />
+                          )}
+                          {highlightLiftOpacity > 0 && (
+                            <div
+                              className="absolute inset-0"
+                              style={{
+                                background: "rgba(255,255,255,1)",
+                                mixBlendMode: "soft-light",
+                                opacity: highlightLiftOpacity,
+                              }}
+                            />
+                          )}
+                          {highlightRecoverOpacity > 0 && (
+                            <div
+                              className="absolute inset-0"
+                              style={{
+                                background: "rgba(0,0,0,1)",
+                                mixBlendMode: "soft-light",
+                                opacity: highlightRecoverOpacity,
+                              }}
+                            />
+                          )}
+                          {temperatureOpacity > 0 && (
+                            <div
+                              className="absolute inset-0"
+                              style={{
+                                background: temperatureColor,
+                                mixBlendMode: "soft-light",
+                                opacity: temperatureOpacity,
+                              }}
+                            />
+                          )}
+                        </div>
+                      )}
+                    </motion.div>
+                  </div>
+                </div>
+
+                {/* Right: Visitor Video */}
+                <div className="flex-1 w-full h-full flex flex-col items-center justify-center relative min-w-0">
+                  <div className="text-xs font-semibold text-white/50 mb-1.5 self-start flex justify-between w-full items-center">
+                    <span>Visitante</span>
+                    {compareVideoUrl && (
+                      <button 
+                        onClick={clearCompareVideo}
+                        className="text-[10px] text-red-400 hover:text-red-300 font-medium transition-colors flex items-center gap-1 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20 cursor-pointer"
+                        title="Quitar video"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        Quitar video
+                      </button>
                     )}
                   </div>
-                )}
+                  <div 
+                    onClick={handleScreenClick}
+                    onDoubleClick={handleScreenDoubleClick}
+                    className="relative w-full h-full flex items-center justify-center overflow-hidden bg-black ring-[1px] ring-white/10 shadow-2xl rounded-lg"
+                    style={isFixedMode ? {
+                      width: '100%',
+                      height: '100%',
+                    } : {
+                      aspectRatio: `${resolution.w} / ${resolution.h}`,
+                      height: '100%',
+                      maxHeight: '100%',
+                      maxWidth: '100%',
+                    }}
+                  >
+                    {compareVideoUrl ? (
+                      <React.Suspense fallback={<div className="w-full h-full bg-black/50 flex items-center justify-center animate-pulse"><MonitorPlay className="w-12 h-12 text-white/20" /></div>}>
+                        <ReactPlayer
+                          ref={comparePlayerRef}
+                          url={compareVideoUrl}
+                          width="100%"
+                          height="100%"
+                          playing={playing}
+                          volume={volume}
+                          muted={true}
+                          progressInterval={100}
+                          style={{
+                            objectFit: 'contain',
+                          }}
+                        />
+                      </React.Suspense>
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center border-2 border-dashed border-white/10 rounded-lg hover:border-white/20 transition-all bg-white/5">
+                        <Upload className="w-8 h-8 text-white/40 mb-3" />
+                        <p className="text-sm font-medium text-white/80 mb-1">Cargar video visitante</p>
+                        <p className="text-xs text-white/40 max-w-[220px] mb-4">Selecciona un segundo video para comparar en paralelo.</p>
+                        <button
+                          onClick={handleCompareFileSelectClick}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-md shadow-md transition-colors cursor-pointer"
+                        >
+                          Seleccionar archivo
+                        </button>
+                        <input
+                          ref={compareFileInputRef}
+                          type="file"
+                          accept="video/*"
+                          className="hidden"
+                          onChange={handleCompareFileSelect}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <motion.div 
+                data-testid="video-screen"
+                onClick={handleScreenClick}
+                onDoubleClick={handleScreenDoubleClick}
+                className={`relative flex items-center justify-center overflow-hidden shrink-0 transition-shadow duration-300 ${isFixedMode ? 'bg-black' : 'rounded-[4px] bg-black ring-[1px] ring-white/10 shadow-2xl'}`}
+                animate={{
+                  scale: effectiveCanvasScale
+                }}
+                transition={{ type: "spring", stiffness: 400, damping: 40 }}
+                style={isFixedMode ? {
+                  width: '100%',
+                  height: '100%',
+                } : {
+                  aspectRatio: `${resolution.w} / ${resolution.h}`,
+                  height: '100%',
+                  maxHeight: '100%',
+                  maxWidth: '100%',
+                }}
+              >
+                <motion.div
+                  animate={{
+                    scale: effectiveScale,
+                    x: `${effectiveTranslateX}%`,
+                    y: `${effectiveTranslateY}%`,
+                  }}
+                  transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                  className="w-full h-full flex items-center justify-center origin-center relative"
+                >
+                  <React.Suspense fallback={<div className="w-full h-full bg-black/50 flex items-center justify-center animate-pulse"><MonitorPlay className="w-12 h-12 text-white/20" /></div>}>
+                    <ReactPlayer
+                      ref={playerRef}
+                      url={videoUrl}
+                      width="100%"
+                      height="100%"
+                      playing={playing && !!activeTimelineClip}
+                      volume={volume}
+                      muted={muted}
+                      onPlay={() => setPlaying(true)}
+                      onPause={() => {
+                        // Ignore technical pauses caused by timeline gaps; the timeline clock keeps running.
+                        if (playing && !isTimelineGap) setPlaying(false);
+                      }}
+                      onDuration={(d: number) => setDuration(d)}
+                      onProgress={handleProgress}
+                      onError={() => setPlayerError("No se pudo cargar el video.")}
+                      progressInterval={100}
+                      style={{
+                        objectFit: isFixedMode ? 'contain' : 'contain',
+                        opacity: isTimelineGap ? 0 : 1,
+                        filter: previewFilter,
+                      }}
+                    />
+                  </React.Suspense>
+                  {previewColorEnabled && (shadowLiftOpacity > 0 || shadowCrushOpacity > 0 || highlightLiftOpacity > 0 || highlightRecoverOpacity > 0 || temperatureOpacity > 0) && (
+                    <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                      {shadowLiftOpacity > 0 && (
+                        <div
+                          className="absolute inset-0"
+                          style={{
+                            background: "rgba(255,255,255,1)",
+                            mixBlendMode: "screen",
+                            opacity: shadowLiftOpacity,
+                          }}
+                        />
+                      )}
+                      {shadowCrushOpacity > 0 && (
+                        <div
+                          className="absolute inset-0"
+                          style={{
+                            background: "rgba(0,0,0,1)",
+                            mixBlendMode: "multiply",
+                            opacity: shadowCrushOpacity,
+                          }}
+                        />
+                      )}
+                      {highlightLiftOpacity > 0 && (
+                        <div
+                          className="absolute inset-0"
+                          style={{
+                            background: "rgba(255,255,255,1)",
+                            mixBlendMode: "soft-light",
+                            opacity: highlightLiftOpacity,
+                          }}
+                        />
+                      )}
+                      {highlightRecoverOpacity > 0 && (
+                        <div
+                          className="absolute inset-0"
+                          style={{
+                            background: "rgba(0,0,0,1)",
+                            mixBlendMode: "soft-light",
+                            opacity: highlightRecoverOpacity,
+                          }}
+                        />
+                      )}
+                      {temperatureOpacity > 0 && (
+                        <div
+                          className="absolute inset-0"
+                          style={{
+                            background: temperatureColor,
+                            mixBlendMode: "soft-light",
+                            opacity: temperatureOpacity,
+                          }}
+                        />
+                      )}
+                    </div>
+                  )}
+                </motion.div>
               </motion.div>
-            </motion.div>
+            )}
 
             {/* Fullscreen Mode Toggle & Window Controls (top-right) */}
             <AnimatePresence>
@@ -1173,6 +1419,21 @@ export default function Canvas() {
 
                     {!isCompactWindow && (
                     <>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleCompareMode();
+                      }}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                      className={`h-10 px-3 rounded-lg bg-black/65 backdrop-blur-md border flex items-center justify-center transition-all shadow-xl text-white/70 hover:text-white hover:bg-black/85 cursor-pointer ${
+                        compareMode ? 'border-blue-400/60 text-blue-200 shadow-blue-500/20' : 'border-white/10'
+                      }`}
+                      title="Comparar videos"
+                    >
+                      <Columns2 className="w-4 h-4 sm:mr-2" />
+                      <span className="hidden sm:inline text-xs font-medium">Comparar</span>
+                    </button>
+
                     <div
                       ref={imageControlsRef}
                       className="relative"
