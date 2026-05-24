@@ -136,12 +136,15 @@ export default function Canvas() {
     if (hasTauriIpc()) {
       try {
         const { open } = await import("@tauri-apps/api/dialog");
-        const { convertFileSrc } = await import("@tauri-apps/api/tauri");
+        const { convertFileSrc, invoke } = await import("@tauri-apps/api/tauri");
         const selected = await open({
           multiple: false,
           filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm'] }]
         });
         if (selected && typeof selected === 'string') {
+          try {
+            await invoke('allow_file_access', { path: selected });
+          } catch (_) {}
           const url = convertFileSrc(selected);
           setCompareVideoUrl(url);
         }
