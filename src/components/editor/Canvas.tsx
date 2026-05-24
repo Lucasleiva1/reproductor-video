@@ -60,6 +60,7 @@ export default function Canvas() {
   const sampleLoadTokenRef = useRef(0);
   const hasNativeFullscreenRef = useRef<boolean | null>(null);
   const compactWindowSnapshotRef = useRef<CompactWindowSnapshot | null>(null);
+  const isChangingWindowStateRef = useRef(false);
   const activeTimelineClip = findActiveClip(clips, currentTime);
   const contentDuration = getContentDuration(clips);
   const playbackDuration = contentDuration > 0 ? contentDuration : duration;
@@ -100,6 +101,33 @@ export default function Canvas() {
     }
   }, []);
 
+  const startWindowStateChange = useCallback(() => {
+    isChangingWindowStateRef.current = true;
+    setTimeout(() => {
+      isChangingWindowStateRef.current = false;
+    }, 600);
+  }, []);
+
+  const saveEditorSnapshot = useCallback(async () => {
+    if (!hasTauriIpc()) return;
+    try {
+      const { appWindow } = await import("@tauri-apps/api/window");
+      const [size, position, maximized] = await Promise.all([
+        appWindow.innerSize(),
+        appWindow.outerPosition(),
+        appWindow.isMaximized(),
+      ]);
+      compactWindowSnapshotRef.current = {
+        size: { width: size.width, height: size.height },
+        position: { x: position.x, y: position.y },
+        maximized,
+        fullscreen: false,
+      };
+    } catch (err) {
+      console.error("Failed to save editor snapshot:", err);
+    }
+  }, []);
+
   const syncFullscreenState = useCallback(async () => {
     const appWindow = await getNativeWindow();
     if (appWindow) {
@@ -135,6 +163,7 @@ export default function Canvas() {
   );
 
   const enterFullscreenNative = useCallback(async () => {
+    startWindowStateChange();
     setFsFreeMode(false);
     setIsCompactWindow(false);
     setIsWebCompactWindow(false);
@@ -151,9 +180,10 @@ export default function Canvas() {
         await document.documentElement.requestFullscreen();
       }
     });
-  }, [getNativeWindow, runFullscreenTransition]);
+  }, [getNativeWindow, runFullscreenTransition, startWindowStateChange]);
 
   const exitFullscreenNative = useCallback(async () => {
+    startWindowStateChange();
     return runFullscreenTransition(async () => {
       const appWindow = await getNativeWindow();
       if (appWindow) {
@@ -168,9 +198,10 @@ export default function Canvas() {
         await document.exitFullscreen();
       }
     });
-  }, [getNativeWindow, runFullscreenTransition]);
+  }, [getNativeWindow, runFullscreenTransition, startWindowStateChange]);
 
   const toggleFullscreenMode = useCallback(async () => {
+    startWindowStateChange();
     if (compactWindowSnapshotRef.current) {
       compactWindowSnapshotRef.current = null;
       setIsCompactWindow(false);
@@ -187,31 +218,28 @@ export default function Canvas() {
       setAppMode("editor");
       await exitFullscreenNative();
     } else {
+      await saveEditorSnapshot();
       setAppMode("player");
       await enterFullscreenNative();
     }
-  }, [enterFullscreenNative, exitFullscreenNative, isFullscreen, setAppMode]);
+  }, [enterFullscreenNative, exitFullscreenNative, isFullscreen, setAppMode, saveEditorSnapshot, startWindowStateChange]);
 
   const restoreCompactWindowMode = useCallback(async () => {
+    startWindowStateChange();
     const snapshot = compactWindowSnapshotRef.current;
     if (!snapshot) return;
 
     try {
       const { appWindow, PhysicalPosition, PhysicalSize } = await import("@tauri-apps/api/window");
       await appWindow.setAlwaysOnTop(false);
-      await appWindow.setDecorations(!snapshot.fullscreen);
+      await appWindow.setDecorations(true);
       setAppMode("player");
       setFsFreeMode(false);
-      if (snapshot.fullscreen) {
-        await appWindow.setFullscreen(true);
-        setIsFullscreen(true);
+      if (snapshot.maximized) {
+        await appWindow.maximize();
       } else {
-        if (snapshot.maximized) {
-          await appWindow.maximize();
-        } else {
-          await appWindow.setSize(new PhysicalSize(snapshot.size.width, snapshot.size.height));
-          await appWindow.setPosition(new PhysicalPosition(snapshot.position.x, snapshot.position.y));
-        }
+        await appWindow.setSize(new PhysicalSize(snapshot.size.width, snapshot.size.height));
+        await appWindow.setPosition(new PhysicalPosition(snapshot.position.x, snapshot.position.y));
       }
     } catch (err) {
       console.error("Failed to restore compact window mode:", err);
@@ -220,9 +248,10 @@ export default function Canvas() {
       setIsCompactWindow(false);
       setIsWebCompactWindow(false);
     }
-  }, [setAppMode, setIsFullscreen]);
+  }, [setAppMode, startWindowStateChange]);
 
   const toggleCompactWindowMode = useCallback(async () => {
+    startWindowStateChange();
     if (isWebCompactWindow) {
       setIsWebCompactWindow(false);
       setIsCompactWindow(false);
@@ -253,20 +282,8 @@ export default function Canvas() {
         PhysicalSize,
       } = await import("@tauri-apps/api/window");
 
-      const [size, position, maximized, fullscreen] = await Promise.all([
-        appWindow.innerSize(),
-        appWindow.outerPosition(),
-        appWindow.isMaximized(),
-        appWindow.isFullscreen(),
-      ]);
-
       if (!compactWindowSnapshotRef.current) {
-        compactWindowSnapshotRef.current = {
-          size: { width: size.width, height: size.height },
-          position: { x: position.x, y: position.y },
-          maximized,
-          fullscreen,
-        };
+        await saveEditorSnapshot();
       }
       setAppMode("player");
       setFsFreeMode(false);
@@ -324,9 +341,10 @@ export default function Canvas() {
 
       setFullscreenError("No se pudo activar ventana pequena.");
     }
-  }, [isWebCompactWindow, isFullscreen, isCompactWindow, restoreCompactWindowMode, setAppMode, setIsFullscreen]);
+  }, [isWebCompactWindow, isFullscreen, isCompactWindow, restoreCompactWindowMode, setAppMode, setIsFullscreen, saveEditorSnapshot, startWindowStateChange]);
 
   const maximizeCompactWindow = useCallback(async () => {
+    startWindowStateChange();
     if (!isCompactWindow) return;
 
     try {
@@ -344,9 +362,10 @@ export default function Canvas() {
       console.error("Failed to maximize compact player:", err);
       setFullscreenError("No se pudo maximizar el reproductor.");
     }
-  }, [enterFullscreenNative, isCompactWindow, setAppMode]);
+  }, [enterFullscreenNative, isCompactWindow, setAppMode, startWindowStateChange]);
 
   const closeCompactWindowToEditor = useCallback(async () => {
+    startWindowStateChange();
     const snapshot = compactWindowSnapshotRef.current;
     compactWindowSnapshotRef.current = null;
     setIsCompactWindow(false);
@@ -364,7 +383,7 @@ export default function Canvas() {
         await appWindow.setFullscreen(false);
       }
       await appWindow.setDecorations(true);
-      if (snapshot?.fullscreen || snapshot?.maximized) {
+      if (snapshot?.maximized) {
         await appWindow.maximize();
       } else if (snapshot) {
         await appWindow.setSize(new PhysicalSize(snapshot.size.width, snapshot.size.height));
@@ -373,9 +392,10 @@ export default function Canvas() {
     } catch (err) {
       console.error("Failed to close compact player:", err);
     }
-  }, [setAppMode, setIsFullscreen]);
+  }, [setAppMode, setIsFullscreen, startWindowStateChange]);
 
   const closePlayerMode = useCallback(() => {
+    startWindowStateChange();
     if (isCompactWindow || compactWindowSnapshotRef.current) {
       closeCompactWindowToEditor().catch(() => {});
       return;
@@ -387,11 +407,11 @@ export default function Canvas() {
     if (isFullscreen) {
       exitFullscreenNative().catch(() => {});
     }
-  }, [closeCompactWindowToEditor, exitFullscreenNative, isCompactWindow, isFullscreen, setAppMode]);
+  }, [closeCompactWindowToEditor, exitFullscreenNative, isCompactWindow, isFullscreen, setAppMode, startWindowStateChange]);
 
-  // Listen for fullscreen and maximize changes
   useEffect(() => {
     const handler = async () => {
+      if (isChangingWindowStateRef.current) return;
       if (hasNativeFullscreenRef.current) {
         await syncFullscreenState();
         return;
@@ -417,6 +437,7 @@ export default function Canvas() {
         hasNativeFullscreenRef.current = true;
         // Listen for window resize to sync fullscreen/maximized state
         unlistenResize = await appWindow.onResized(async () => {
+          if (isChangingWindowStateRef.current) return;
           if (useTimeline.getState().fsTransitioning) return;
 
           setIsMaximized(await appWindow.isMaximized());
