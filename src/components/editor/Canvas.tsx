@@ -1007,8 +1007,7 @@ export default function Canvas() {
                     )}
                   </div>
                   <div 
-                    onClick={handleScreenClick}
-                    onDoubleClick={handleScreenDoubleClick}
+                    onClick={(e) => e.stopPropagation()}
                     className="relative w-full h-full flex items-center justify-center overflow-hidden bg-black ring-[1px] ring-white/10 shadow-2xl rounded-lg"
                     style={isFixedMode ? {
                       width: '100%',
