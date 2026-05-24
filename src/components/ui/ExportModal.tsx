@@ -43,35 +43,34 @@ export default function ExportModal() {
     let inputData: File | Uint8Array;
     let width = 0;
     let height = 0;
+    let tempObjectUrl = "";
 
     try {
       if (videoFile) {
         inputData = videoFile;
         const tempVideo = document.createElement("video");
-        const fileUrl = URL.createObjectURL(videoFile);
-        tempVideo.src = fileUrl;
-        await new Promise((resolve) => {
+        tempObjectUrl = URL.createObjectURL(videoFile);
+        tempVideo.src = tempObjectUrl;
+        await new Promise((resolve, reject) => {
           tempVideo.onloadedmetadata = () => resolve(true);
-          tempVideo.onerror = () => resolve(false);
+          tempVideo.onerror = () => reject(new Error("No se pudieron cargar los metadatos del video."));
         });
         width = tempVideo.videoWidth;
         height = tempVideo.videoHeight;
-        URL.revokeObjectURL(fileUrl);
       } else if (videoPath) {
         const { readBinaryFile } = await import('@tauri-apps/api/fs');
         inputData = await readBinaryFile(videoPath);
         
         const blob = new Blob([inputData as any]);
-        const url = URL.createObjectURL(blob);
+        tempObjectUrl = URL.createObjectURL(blob);
         const tempVideo = document.createElement("video");
-        tempVideo.src = url;
-        await new Promise((resolve) => {
+        tempVideo.src = tempObjectUrl;
+        await new Promise((resolve, reject) => {
           tempVideo.onloadedmetadata = () => resolve(true);
-          tempVideo.onerror = () => resolve(false);
+          tempVideo.onerror = () => reject(new Error("No se pudieron cargar los metadatos del video de Tauri."));
         });
         width = tempVideo.videoWidth;
         height = tempVideo.videoHeight;
-        URL.revokeObjectURL(url);
       } else {
         return;
       }
@@ -94,6 +93,9 @@ export default function ExportModal() {
       setRenderError("Error al exportar. Intenta nuevamente.");
     } finally {
       setRendering(false);
+      if (tempObjectUrl) {
+        URL.revokeObjectURL(tempObjectUrl);
+      }
     }
   };
 
@@ -180,7 +182,7 @@ export default function ExportModal() {
                 <div className="space-y-3">
                   <label className="text-sm font-medium">{t('output_format')}</label>
                   <Select value={format} onValueChange={(val) => val && setFormat(val as "mp4" | "mp3" | "mp4-muted")}>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger className="w-full" aria-label={t('output_format')}>
                       <SelectValue placeholder={t('format')} />
                     </SelectTrigger>
                     <SelectContent>

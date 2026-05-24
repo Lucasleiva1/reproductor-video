@@ -183,9 +183,10 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
             size="icon" 
             onClick={() => setShowSettings(!showSettings)} 
             title={t('settings')} 
-            className={`rounded-full w-8 h-8 transition-all ${showSettings ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30' : ''}`}
+            aria-label={t('settings')}
+            className={`rounded-full w-8 h-8 transition-colors ${showSettings ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30' : ''}`}
           >
-            <Settings className={`w-4 h-4 transition-transform duration-500 ${showSettings ? 'rotate-90' : ''}`} />
+            <Settings className={`w-4 h-4 transition-transform duration-500 ${showSettings ? 'rotate-90' : ''}`} aria-hidden="true" />
           </Button>
 
           <Button 
@@ -194,9 +195,10 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
             onClick={undo} 
             disabled={past.length === 0}
             title={t('shortcut_undo')} 
-            className="rounded-full w-8 h-8 text-muted-foreground hover:text-foreground"
+            aria-label={t('shortcut_undo')}
+            className="rounded-full w-8 h-8 text-muted-foreground hover:text-foreground transition-colors"
           >
-            <Undo2 className="w-4 h-4" />
+            <Undo2 className="w-4 h-4" aria-hidden="true" />
           </Button>
 
           <Button 
@@ -205,13 +207,21 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
             onClick={redo} 
             disabled={future.length === 0}
             title={t('shortcut_redo')} 
-            className="rounded-full w-8 h-8 text-muted-foreground hover:text-foreground"
+            aria-label={t('shortcut_redo')}
+            className="rounded-full w-8 h-8 text-muted-foreground hover:text-foreground transition-colors"
           >
-            <Redo2 className="w-4 h-4" />
+            <Redo2 className="w-4 h-4" aria-hidden="true" />
           </Button>
 
-          <Button variant="ghost" size="icon" onClick={() => { saveHistory(); resetTransform(); }} title={t('reset_all')} className="rounded-full w-8 h-8 text-muted-foreground hover:text-foreground">
-            <RotateCcw className="w-4 h-4" />
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => { saveHistory(); resetTransform(); }} 
+            title={t('reset_all')} 
+            aria-label={t('reset_all')}
+            className="rounded-full w-8 h-8 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <RotateCcw className="w-4 h-4" aria-hidden="true" />
           </Button>
 
           {onClose && (

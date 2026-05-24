@@ -84,9 +84,99 @@ function TimelineFilmstrip({
   );
 }
 
+interface PlayheadProps {
+  pixelsPerSecond: number;
+  trackWidthPx: number;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  trackRef: React.RefObject<HTMLDivElement | null>;
+  isScrubbingRef: React.RefObject<boolean>;
+  dragStateRef: React.RefObject<any>;
+}
+
+function TimelinePlayhead({
+  pixelsPerSecond,
+  trackWidthPx,
+  scrollContainerRef,
+  trackRef,
+  isScrubbingRef,
+  dragStateRef,
+}: PlayheadProps) {
+  const currentTime = useTimeline((s) => s.currentTime);
+  const duration = useTimeline((s) => s.duration);
+  const playing = useTimeline((s) => s.playing);
+
+  useEffect(() => {
+    if (
+      !playing ||
+      isScrubbingRef.current ||
+      dragStateRef.current?.id ||
+      duration === 0 ||
+      !scrollContainerRef.current ||
+      !trackRef.current
+    )
+      return;
+
+    const container = scrollContainerRef.current;
+    const worldPlayheadX = trackRef.current.offsetLeft + currentTime * pixelsPerSecond;
+    const viewLeft = container.scrollLeft;
+    const viewRight = container.scrollLeft + container.clientWidth;
+    const EDGE_PADDING = 60;
+
+    if (worldPlayheadX > viewRight) {
+      container.scrollTo({
+        left: worldPlayheadX - EDGE_PADDING,
+        behavior: "auto",
+      });
+    } else if (worldPlayheadX < viewLeft) {
+      container.scrollTo({
+        left: Math.max(0, worldPlayheadX - EDGE_PADDING),
+        behavior: "auto",
+      });
+    }
+  }, [
+    currentTime,
+    duration,
+    pixelsPerSecond,
+    playing,
+    isScrubbingRef,
+    dragStateRef,
+    scrollContainerRef,
+    trackRef,
+  ]);
+
+  const progressLeftPx = Math.max(0, Math.min(currentTime * pixelsPerSecond, trackWidthPx));
+
+  return (
+    <div
+      className="absolute top-0 bottom-0 w-px z-50 pointer-events-none"
+      style={{ left: `${progressLeftPx}px`, background: "linear-gradient(to bottom, #ef4444, #ef444480)" }}
+    >
+      <div
+        className="absolute top-0 -translate-x-1/2 w-3 h-3 rounded-sm shadow-lg bg-red-500 transform rotate-45"
+        style={{ boxShadow: "0 0 8px rgba(239,68,68,0.6)" }}
+      />
+    </div>
+  );
+}
+
 export default function Timeline() {
   const { t } = useTranslation();
-  const { duration, currentTime, clips, splitClip, removeClip, videoFile, playing, setPlaying, setCurrentTime, bladeModeLimit, timelineTimeMode, showTips, thumbnails, isGeneratingThumbnails, ensureThumbnails } = useTimeline();
+  
+  const duration = useTimeline((s) => s.duration);
+  const clips = useTimeline((s) => s.clips);
+  const splitClip = useTimeline((s) => s.splitClip);
+  const removeClip = useTimeline((s) => s.removeClip);
+  const videoFile = useTimeline((s) => s.videoFile);
+  const playing = useTimeline((s) => s.playing);
+  const setPlaying = useTimeline((s) => s.setPlaying);
+  const setCurrentTime = useTimeline((s) => s.setCurrentTime);
+  const bladeModeLimit = useTimeline((s) => s.bladeModeLimit);
+  const timelineTimeMode = useTimeline((s) => s.timelineTimeMode);
+  const showTips = useTimeline((s) => s.showTips);
+  const thumbnails = useTimeline((s) => s.thumbnails);
+  const isGeneratingThumbnails = useTimeline((s) => s.isGeneratingThumbnails);
+  const ensureThumbnails = useTimeline((s) => s.ensureThumbnails);
+
   const [timelineZoom, setTimelineZoom] = useState(1);
   const trackRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -163,37 +253,6 @@ export default function Timeline() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
-  // --- PLAYBACK AUTO-PAGINATION ---
-  useEffect(() => {
-    // Only auto-paginate when actively playing, and never when the user is actively dragging/scrubbing
-    if (!playing || isScrubbing.current || dragState.current.id || duration === 0 || !scrollContainerRef.current || !trackRef.current) return;
-
-    const container = scrollContainerRef.current;
-    
-    // Calculate the absolute pixel position of the playhead within the scrollable world
-    const worldPlayheadX = trackRef.current.offsetLeft + currentTime * pixelsPerSecond;
-    
-    const viewLeft = container.scrollLeft;
-    const viewRight = container.scrollLeft + container.clientWidth;
-
-    // Optional padding so it doesn't glue exactly to the pixels of the edge
-    const EDGE_PADDING = 60; 
-
-    if (worldPlayheadX > viewRight) {
-      // Reached the right edge: jump the scroll so the playhead reappears at the left edge!
-      container.scrollTo({
-        left: worldPlayheadX - EDGE_PADDING,
-        behavior: 'auto'
-      });
-    } else if (worldPlayheadX < viewLeft) {
-      // Reached the left edge (e.g. video loops back or jumps back)
-      container.scrollTo({
-        left: Math.max(0, worldPlayheadX - EDGE_PADDING),
-        behavior: 'auto'
-      });
-    }
-  }, [currentTime, duration, pixelsPerSecond, playing]);
 
   // --- Helpers ---
   const getPxPerSec = useCallback(() => {
@@ -492,8 +551,6 @@ export default function Timeline() {
     }
   };
 
-  const progressLeftPx = Math.max(0, Math.min(currentTime * pixelsPerSecond, trackWidthPx));
-
   // --- Middle-mouse panning ---
   const onPanStart = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button === 1) {
@@ -516,7 +573,11 @@ export default function Timeline() {
         <div className="flex flex-col gap-1">
           <span className="font-semibold text-lg text-white tracking-tight flex items-center gap-3">
              {videoFile?.name || t('timeline_title')}
-             <button onClick={() => setPlaying(!playing)} className="flex items-center justify-center bg-indigo-600 hover:bg-indigo-500 text-white rounded-full w-9 h-9 transition-all shadow-lg shadow-indigo-500/20">
+             <button 
+               onClick={() => setPlaying(!playing)} 
+               aria-label={playing ? "Pausar reproducción" : "Iniciar reproducción"}
+               className="flex items-center justify-center bg-indigo-600 hover:bg-indigo-500 text-white rounded-full w-9 h-9 transition-colors shadow-lg shadow-indigo-500/20"
+             >
                 {playing ? <FaPause className="w-3 h-3" /> : <FaPlay className="w-3 h-3 translate-x-0.5" />}
              </button>
              <button 
@@ -525,8 +586,9 @@ export default function Timeline() {
                  setBladeMode(newVal);
                  if (newVal) setBladeCutsRemaining(bladeModeLimit || 2);
                }} 
-               title={bladeMode ? (bladeModeLimit === 0 ? 'Cortando... (∞)' : `Cortando... (${bladeCutsRemaining} restante${bladeCutsRemaining !== 1 ? 's' : ''})`) : 'Blade Tool'}
-               className={`p-2 rounded-lg transition-all flex items-center justify-center relative ${bladeMode ? 'bg-red-500 text-white shadow-lg shadow-red-500/40 scale-110' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white'}`}
+               title={bladeMode ? (bladeModeLimit === 0 ? 'Cortando… (∞)' : `Cortando… (${bladeCutsRemaining} restante${bladeCutsRemaining !== 1 ? 's' : ''})`) : 'Blade Tool'}
+               aria-label={bladeMode ? "Desactivar herramienta de corte" : "Activar herramienta de corte"}
+               className={`p-2 rounded-lg transition-colors flex items-center justify-center relative ${bladeMode ? 'bg-red-500 text-white shadow-lg shadow-red-500/40 scale-110' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white'}`}
              >
                <span className="text-base leading-none">✂️</span>
                {bladeMode && bladeModeLimit !== 0 && (
@@ -543,7 +605,8 @@ export default function Timeline() {
              <button
                onClick={() => setSnappingActive(!snappingActive)}
                title={snappingActive ? 'Snapping Activo (10px)' : 'Snapping Desactivado'}
-               className={`p-2 rounded-lg transition-all flex items-center justify-center ${snappingActive ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'}`}
+               aria-label={snappingActive ? "Desactivar auto-ajuste" : "Activar auto-ajuste"}
+               className={`p-2 rounded-lg transition-colors flex items-center justify-center ${snappingActive ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'}`}
              >
                <Magnet className="w-3.5 h-3.5" />
              </button>
@@ -675,12 +738,14 @@ export default function Timeline() {
           </div>
 
           {/* Playhead */}
-          <div 
-            className="absolute top-0 bottom-0 w-px z-50 pointer-events-none"
-            style={{ left: `${progressLeftPx}px`, background: 'linear-gradient(to bottom, #ef4444, #ef444480)' }}
-          >
-            <div className="absolute top-0 -translate-x-1/2 w-3 h-3 rounded-sm shadow-lg bg-red-500 transform rotate-45" style={{ boxShadow: '0 0 8px rgba(239,68,68,0.6)' }} />
-          </div>
+          <TimelinePlayhead
+            pixelsPerSecond={pixelsPerSecond}
+            trackWidthPx={trackWidthPx}
+            scrollContainerRef={scrollContainerRef}
+            trackRef={trackRef}
+            isScrubbingRef={isScrubbing}
+            dragStateRef={dragState}
+          />
 
           {/* Multi-Clip Track */}
           <div className="w-full relative flex items-center" style={{ height: 'calc(100% - 32px)', marginTop: '32px' }}>

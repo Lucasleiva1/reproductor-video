@@ -293,7 +293,7 @@ export default function Home() {
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Top: Video Preview Workspace */}
         <div className={`flex-1 bg-[#121212] flex flex-col relative w-full shadow-inner ${isFullscreen ? '' : 'border-b border-border'}`}>
-          <Suspense fallback={<div className="flex-1 flex items-center justify-center text-muted-foreground animate-pulse">Cargando editor...</div>}>
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center text-muted-foreground animate-pulse">Cargando editor…</div>}>
             <Canvas />
           </Suspense>
 

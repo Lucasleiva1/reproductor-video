@@ -136,6 +136,8 @@ export default function Canvas() {
 
   const enterFullscreenNative = useCallback(async () => {
     setFsFreeMode(false);
+    setIsCompactWindow(false);
+    setIsWebCompactWindow(false);
     return runFullscreenTransition(async () => {
       const appWindow = await getNativeWindow();
       if (appWindow) {
@@ -227,7 +229,7 @@ export default function Canvas() {
       return;
     }
 
-    if (compactWindowSnapshotRef.current) {
+    if (compactWindowSnapshotRef.current && !isFullscreen) {
       await restoreCompactWindowMode();
       return;
     }
@@ -258,21 +260,25 @@ export default function Canvas() {
         appWindow.isFullscreen(),
       ]);
 
-      compactWindowSnapshotRef.current = {
-        size: { width: size.width, height: size.height },
-        position: { x: position.x, y: position.y },
-        maximized,
-        fullscreen,
-      };
+      if (!compactWindowSnapshotRef.current) {
+        compactWindowSnapshotRef.current = {
+          size: { width: size.width, height: size.height },
+          position: { x: position.x, y: position.y },
+          maximized,
+          fullscreen,
+        };
+      }
       setAppMode("player");
       setFsFreeMode(false);
       setShowImageControls(false);
       setIsCompactWindow(true);
 
-      if (fullscreen) {
+      const alreadyFs = await appWindow.isFullscreen();
+      if (alreadyFs) {
         await appWindow.setFullscreen(false);
       }
-      if (maximized) {
+      const alreadyMax = await appWindow.isMaximized();
+      if (alreadyMax) {
         await appWindow.unmaximize();
       }
 
@@ -300,7 +306,10 @@ export default function Canvas() {
       setIsFullscreen(false);
     } catch (err) {
       console.error("Failed to enter compact window mode:", err);
-      compactWindowSnapshotRef.current = null;
+      // Solo limpiar el snapshot si falló el primer intento de entrar a compact window
+      if (!isCompactWindow) {
+        compactWindowSnapshotRef.current = null;
+      }
       setIsCompactWindow(false);
 
       if (!hasTauriIpc()) {
@@ -315,7 +324,7 @@ export default function Canvas() {
 
       setFullscreenError("No se pudo activar ventana pequena.");
     }
-  }, [isWebCompactWindow, restoreCompactWindowMode, setAppMode, setIsFullscreen]);
+  }, [isWebCompactWindow, isFullscreen, isCompactWindow, restoreCompactWindowMode, setAppMode, setIsFullscreen]);
 
   const maximizeCompactWindow = useCallback(async () => {
     if (!isCompactWindow) return;
@@ -325,7 +334,7 @@ export default function Canvas() {
         const { appWindow } = await import("@tauri-apps/api/window");
         await appWindow.setAlwaysOnTop(false);
       }
-      compactWindowSnapshotRef.current = null;
+      // Conservar compactWindowSnapshotRef.current para poder volver al editor con el tamaño original
       setIsCompactWindow(false);
       setIsWebCompactWindow(false);
       setAppMode("player");
@@ -367,7 +376,7 @@ export default function Canvas() {
   }, [setAppMode, setIsFullscreen]);
 
   const closePlayerMode = useCallback(() => {
-    if (isCompactWindow) {
+    if (isCompactWindow || compactWindowSnapshotRef.current) {
       closeCompactWindowToEditor().catch(() => {});
       return;
     }
@@ -952,13 +961,10 @@ export default function Canvas() {
                               await maximizeCompactWindow();
                               return;
                             }
-                            if (compactWindowSnapshotRef.current) {
-                              await restoreCompactWindowMode();
-                            }
                             if (isFullscreen) {
                               await exitFullscreenNative();
+                              return;
                             }
-                            setAppMode("editor");
                             const { appWindow } = await import('@tauri-apps/api/window');
                             await appWindow.toggleMaximize();
                             // Sync state
@@ -1285,9 +1291,13 @@ export default function Canvas() {
                       onClick={(e) => { 
                         e.stopPropagation(); 
                         if (appMode === "player") {
-                          setAppMode("editor");
-                          if (isFullscreen) {
-                            exitFullscreenNative().catch(() => {});
+                          if (isCompactWindow || compactWindowSnapshotRef.current) {
+                            closeCompactWindowToEditor().catch(() => {});
+                          } else {
+                            setAppMode("editor");
+                            if (isFullscreen) {
+                              exitFullscreenNative().catch(() => {});
+                            }
                           }
                         } else {
                           toggleFullscreenMode().catch(() => {});
