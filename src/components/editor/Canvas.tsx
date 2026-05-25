@@ -8,7 +8,7 @@ import {
 } from "@/utils/timeline";
 import { motion, AnimatePresence } from "framer-motion";
 import React, { useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2, RotateCcw, X, Maximize2, Copy, PictureInPicture2, SlidersHorizontal, Repeat2, Eye, EyeOff, Columns2, Trash2 } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2, RotateCcw, X, Copy, PictureInPicture2, SlidersHorizontal, Repeat2, Eye, EyeOff, Columns2, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { analyzeVideoImage, type AnalysisProgress } from "@/utils/videoAnalyzer";
 
@@ -39,7 +39,7 @@ export default function Canvas() {
   const imageControlsRef = useRef<HTMLDivElement>(null);
   const screenClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [isMaximized, setIsMaximized] = useState(false);
+  const [, setIsMaximized] = useState(false);
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
   const [fsIdle, setFsIdle] = useState(false);
@@ -63,6 +63,7 @@ export default function Canvas() {
   const isChangingWindowStateRef = useRef(false);
   const [compareMode, setCompareMode] = useState(false);
   const [compareVideoUrl, setCompareVideoUrl] = useState<string | null>(null);
+  const [compareMuted, setCompareMuted] = useState(true);
   const comparePlayerRef = useRef<any>(null);
   const compareFileInputRef = useRef<HTMLInputElement>(null);
   const activeTimelineClip = findActiveClip(clips, currentTime);
@@ -132,51 +133,52 @@ export default function Canvas() {
     }
   }, []);
 
-  const handleCompareFileSelectClick = useCallback(async () => {
-    if (hasTauriIpc()) {
-      try {
-        const { open } = await import("@tauri-apps/api/dialog");
-        const { convertFileSrc, invoke } = await import("@tauri-apps/api/tauri");
-        const selected = await open({
-          multiple: false,
-          filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm'] }]
-        });
-        if (selected && typeof selected === 'string') {
-          try {
-            await invoke('allow_file_access', { path: selected });
-          } catch (_) {}
-          const url = convertFileSrc(selected);
-          setCompareVideoUrl(url);
-        }
-      } catch (err) {
-        console.error("Failed to open Tauri file dialog:", err);
-      }
-    } else {
-      compareFileInputRef.current?.click();
-    }
+  const handleCompareFileSelectClick = useCallback(() => {
+    compareFileInputRef.current?.click();
   }, []);
 
   const handleCompareFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       const url = URL.createObjectURL(file);
-      setCompareVideoUrl(url);
+      setCompareVideoUrl((prev) => {
+        if (prev && prev.startsWith("blob:")) {
+          URL.revokeObjectURL(prev);
+        }
+        return url;
+      });
+      setCompareMuted(true);
     }
   }, []);
 
   const clearCompareVideo = useCallback(() => {
-    setCompareVideoUrl(null);
+    setCompareVideoUrl((prev) => {
+      if (prev && prev.startsWith("blob:")) {
+        URL.revokeObjectURL(prev);
+      }
+      return null;
+    });
+    setCompareMuted(true);
   }, []);
 
   const toggleCompareMode = useCallback(() => {
     setCompareMode((prev) => {
       const next = !prev;
       if (!next) {
-        setCompareVideoUrl(null);
+        setCompareVideoUrl((prevUrl) => {
+          if (prevUrl && prevUrl.startsWith("blob:")) {
+            URL.revokeObjectURL(prevUrl);
+          }
+          return null;
+        });
+        setCompareMuted(true);
+      } else {
+        setCurrentTime(0);
+        setPlaying(false);
       }
       return next;
     });
-  }, []);
+  }, [setCurrentTime, setPlaying]);
 
   const syncFullscreenState = useCallback(async () => {
     const appWindow = await getNativeWindow();
@@ -634,14 +636,28 @@ export default function Canvas() {
     }
   }, [currentTime, clips, playing, loopPlayback, setCurrentTime, setPlaying]);
 
-  // Keep visitor video playhead synchronized with the timeline clock.
+  // Keep visitor video playhead and play/pause synchronized with the timeline clock.
   useEffect(() => {
-    if (!comparePlayerRef.current || !compareVideoUrl) return;
+    const video = comparePlayerRef.current;
+    if (!video || !compareVideoUrl) return;
 
     try {
-      const currentInternalTime = comparePlayerRef.current.getCurrentTime();
+      if (playing) {
+        video.play().catch(() => {});
+      } else {
+        video.pause();
+      }
+    } catch (_) {}
+  }, [playing, compareVideoUrl]);
+
+  useEffect(() => {
+    const video = comparePlayerRef.current;
+    if (!video || !compareVideoUrl) return;
+
+    try {
+      const currentInternalTime = video.currentTime;
       if (Math.abs(currentInternalTime - currentTime) > 0.35) {
-        comparePlayerRef.current.seekTo(currentTime, "seconds");
+        video.currentTime = currentTime;
       }
     } catch (_) {}
   }, [currentTime, compareVideoUrl]);
@@ -650,7 +666,13 @@ export default function Canvas() {
   useEffect(() => {
     if (isCompactWindow && compareMode) {
       setCompareMode(false);
-      setCompareVideoUrl(null);
+      setCompareVideoUrl((prevUrl) => {
+        if (prevUrl && prevUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(prevUrl);
+        }
+        return null;
+      });
+      setCompareMuted(true);
     }
   }, [isCompactWindow, compareMode]);
 
@@ -888,7 +910,7 @@ export default function Canvas() {
               <div className="w-full h-full flex flex-col md:flex-row gap-4 p-4 items-center justify-center pointer-events-auto">
                 {/* Left: Original Video */}
                 <div className="flex-1 w-full h-full flex flex-col items-center justify-center relative min-w-0">
-                  <div className="text-xs font-semibold text-white/50 mb-1.5 self-start">Original</div>
+                  <div className="text-xs font-semibold text-white/50 mb-1.5 self-start pl-12">Original</div>
                   <div
                     onClick={handleScreenClick}
                     onDoubleClick={handleScreenDoubleClick}
@@ -996,17 +1018,35 @@ export default function Canvas() {
 
                 {/* Right: Visitor Video */}
                 <div className="flex-1 w-full h-full flex flex-col items-center justify-center relative min-w-0">
-                  <div className="text-xs font-semibold text-white/50 mb-1.5 self-start flex justify-between w-full items-center">
+                  <div className="text-xs font-semibold text-white/50 mb-1.5 self-start flex justify-between w-full items-center pr-[140px]">
                     <span>Visitante</span>
                     {compareVideoUrl && (
-                      <button 
-                        onClick={clearCompareVideo}
-                        className="text-[10px] text-red-400 hover:text-red-300 font-medium transition-colors flex items-center gap-1 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20 cursor-pointer"
-                        title="Quitar video"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        Quitar video
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCompareMuted((prev) => !prev);
+                          }}
+                          className={`text-[10px] font-medium transition-colors flex items-center gap-1 px-2 py-0.5 rounded border cursor-pointer ${
+                            compareMuted
+                              ? 'text-amber-400 hover:text-amber-300 bg-amber-500/10 border-amber-500/20'
+                              : 'text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 border-emerald-500/20'
+                          }`}
+                          title={compareMuted ? "Activar audio" : "Silenciar audio"}
+                        >
+                          {compareMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                          {compareMuted ? "Silenciado" : "Audio activo"}
+                        </button>
+
+                        <button
+                          onClick={clearCompareVideo}
+                          className="text-[10px] text-red-400 hover:text-red-300 font-medium transition-colors flex items-center gap-1 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20 cursor-pointer"
+                          title="Quitar video"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Quitar video
+                        </button>
+                      </div>
                     )}
                   </div>
                   <div 
@@ -1023,21 +1063,15 @@ export default function Canvas() {
                     }}
                   >
                     {compareVideoUrl ? (
-                      <React.Suspense fallback={<div className="w-full h-full bg-black/50 flex items-center justify-center animate-pulse"><MonitorPlay className="w-12 h-12 text-white/20" /></div>}>
-                        <ReactPlayer
-                          ref={comparePlayerRef}
-                          url={compareVideoUrl}
-                          width="100%"
-                          height="100%"
-                          playing={playing}
-                          volume={volume}
-                          muted={true}
-                          progressInterval={100}
-                          style={{
-                            objectFit: 'contain',
-                          }}
-                        />
-                      </React.Suspense>
+                      <video
+                        ref={comparePlayerRef}
+                        src={compareVideoUrl}
+                        className="w-full h-full"
+                        muted={compareMuted}
+                        style={{
+                          objectFit: 'contain',
+                        }}
+                      />
                     ) : (
                       <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center border-2 border-dashed border-white/10 rounded-lg hover:border-white/20 transition-all bg-white/5">
                         <Upload className="w-8 h-8 text-white/40 mb-3" />
@@ -1225,35 +1259,30 @@ export default function Canvas() {
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
-                          try {
-                            if (isCompactWindow) {
-                              await maximizeCompactWindow();
-                              return;
-                            }
-                            if (isFullscreen) {
-                              await exitFullscreenNative();
-                              return;
-                            }
-                            const { appWindow } = await import('@tauri-apps/api/window');
-                            await appWindow.toggleMaximize();
-                            // Sync state
-                            setIsMaximized(await appWindow.isMaximized());
-                          } catch (err) {
-                            console.error("Failed to toggle window mode:", err);
-                          }
+                          closePlayerMode();
                         }}
                         onDoubleClick={(e) => e.stopPropagation()}
                         className="p-2 sm:p-2.5 bg-black/40 hover:bg-zinc-700/80 backdrop-blur-md rounded-full text-white/70 hover:text-white transition-all shadow-xl border border-white/10 active:scale-90"
-                        title={isCompactWindow ? 'Maximizar reproductor' : isMaximized ? 'Restaurar' : t('window_mode')}
+                        title="Ir a edición"
                       >
-                        {isCompactWindow ? <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : isMaximized ? <Copy className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
+                        <Copy className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                       </button>
 
                       {/* Close Player Button */}
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
-                          closePlayerMode();
+                          if (hasTauriIpc()) {
+                            try {
+                              const { appWindow } = await import("@tauri-apps/api/window");
+                              await appWindow.close();
+                            } catch (err) {
+                              console.error("Failed to close window:", err);
+                              closePlayerMode();
+                            }
+                          } else {
+                            closePlayerMode();
+                          }
                         }}
                         onDoubleClick={(e) => e.stopPropagation()}
                         className="p-2 sm:p-2.5 bg-black/40 hover:bg-red-500/80 backdrop-blur-md rounded-full text-white/70 hover:text-white transition-all shadow-xl border border-white/10 group active:scale-90"
@@ -1296,12 +1325,14 @@ export default function Canvas() {
                     onPointerDown={(e) => e.stopPropagation()}
                   >
                     <div 
-                      className="w-full h-1.5 bg-white/20 rounded-full cursor-pointer group relative hover:h-2 transition-all"
+                      className="w-full relative cursor-pointer group"
+                      style={{ padding: '14px 0' }}
                       onPointerDown={(e) => {
                         e.stopPropagation();
-                        const el = e.currentTarget;
+                        const bar = e.currentTarget.querySelector('[data-progress-track]') as HTMLElement;
+                        if (!bar) return;
                         const updateTime = (clientEx: number) => {
-                          const rect = el.getBoundingClientRect();
+                          const rect = bar.getBoundingClientRect();
                           const percent = Math.max(0, Math.min(1, (clientEx - rect.left) / rect.width));
                           setCurrentTime(percent * playbackDuration);
                         };
@@ -1319,11 +1350,16 @@ export default function Canvas() {
                         window.addEventListener('pointerup', onUp);
                       }}
                     >
-                      <div 
-                        className="h-full bg-blue-500 rounded-full relative pointer-events-none shadow-[0_0_18px_rgba(59,130,246,0.55)]"
-                        style={{ width: `${playbackDuration > 0 ? (Math.min(currentTime, playbackDuration) / playbackDuration) * 100 : 0}%` }}
+                      <div
+                        data-progress-track
+                        className="w-full h-1.5 bg-white/20 rounded-full relative group-hover:h-2.5 transition-all"
                       >
-                        <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full shadow scale-0 group-hover:scale-100 transition-transform -mr-1.5" />
+                        <div
+                          className="h-full bg-blue-500 rounded-full relative pointer-events-none shadow-[0_0_18px_rgba(59,130,246,0.55)]"
+                          style={{ width: `${playbackDuration > 0 ? (Math.min(currentTime, playbackDuration) / playbackDuration) * 100 : 0}%` }}
+                        >
+                          <div className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-lg shadow-blue-500/40 scale-75 group-hover:scale-100 transition-transform -mr-2 ring-2 ring-blue-500/50" />
+                        </div>
                       </div>
                     </div>
                   </div>

@@ -91,6 +91,8 @@ interface PlayheadProps {
   trackRef: React.RefObject<HTMLDivElement | null>;
   isScrubbingRef: React.RefObject<boolean>;
   dragStateRef: React.RefObject<any>;
+  handleScrub: (clientX: number) => void;
+  updateAutoPan: (clientX: number, active: boolean) => void;
 }
 
 function TimelinePlayhead({
@@ -100,6 +102,8 @@ function TimelinePlayhead({
   trackRef,
   isScrubbingRef,
   dragStateRef,
+  handleScrub,
+  updateAutoPan,
 }: PlayheadProps) {
   const currentTime = useTimeline((s) => s.currentTime);
   const duration = useTimeline((s) => s.duration);
@@ -148,13 +152,51 @@ function TimelinePlayhead({
 
   return (
     <div
-      className="absolute top-0 bottom-0 w-px z-50 pointer-events-none"
-      style={{ left: `${progressLeftPx}px`, background: "linear-gradient(to bottom, #ef4444, #ef444480)" }}
+      className="absolute top-0 bottom-0 w-px z-50"
+      style={{ left: `${progressLeftPx}px`, background: "linear-gradient(to bottom, #ef4444, #ef444480)", pointerEvents: 'none' }}
     >
+      {/* Visible diamond head */}
       <div
         className="absolute top-0 -translate-x-1/2 w-3 h-3 rounded-sm shadow-lg bg-red-500 transform rotate-45"
-        style={{ boxShadow: "0 0 8px rgba(239,68,68,0.6)" }}
+        style={{ boxShadow: "0 0 8px rgba(239,68,68,0.6)", pointerEvents: 'none' }}
       />
+      {/* Full-height wide drag handle — extends above & below for easy grab */}
+      <div
+        className="absolute -translate-x-1/2 cursor-col-resize group/handle"
+        style={{
+          top: '-12px',
+          bottom: '-12px',
+          width: '32px',
+          pointerEvents: 'auto',
+          zIndex: 60,
+        }}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          e.currentTarget.setPointerCapture(e.pointerId);
+          isScrubbingRef.current = true;
+          handleScrub(e.clientX);
+          updateAutoPan(e.clientX, true);
+        }}
+        onPointerMove={(e) => {
+          if (isScrubbingRef.current) {
+            handleScrub(e.clientX);
+            updateAutoPan(e.clientX, true);
+          }
+        }}
+        onPointerUp={(e) => {
+          isScrubbingRef.current = false;
+          try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+          updateAutoPan(e.clientX, false);
+        }}
+        onPointerCancel={(e) => {
+          isScrubbingRef.current = false;
+          try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+          updateAutoPan(e.clientX, false);
+        }}
+      >
+        {/* Visible hover stripe so you know you can grab it */}
+        <div className="absolute inset-0 rounded-sm bg-red-500/0 group-hover/handle:bg-red-500/10 active:bg-red-500/20 transition-colors" />
+      </div>
     </div>
   );
 }
@@ -178,6 +220,7 @@ export default function Timeline() {
   const ensureThumbnails = useTimeline((s) => s.ensureThumbnails);
 
   const [timelineZoom, setTimelineZoom] = useState(1);
+  const [containerWidth, setContainerWidth] = useState(800);
   const trackRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const panRef = useRef({ isDragging: false, startX: 0, scrollLeft: 0 });
@@ -186,8 +229,30 @@ export default function Timeline() {
   const [snappingActive, setSnappingActive] = useState(true);
   const contentDuration = getContentDuration(clips);
   const viewDuration = Math.max(duration, contentDuration + 10, 30);
+
+  // ResizeObserver to dynamically obtain container width
+  useEffect(() => {
+    if (!scrollContainerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width || 800);
+      }
+    });
+    observer.observe(scrollContainerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const fitZoom = ((containerWidth * 0.5) / viewDuration) / BASE_PIXELS_PER_SECOND;
+  const minZoom = Math.max(0.001, Math.min(1, fitZoom));
+  const maxZoom = 10;
+
+  // Clamp current zoom to dynamic bounds
+  useEffect(() => {
+    setTimelineZoom((prev) => Math.max(minZoom, Math.min(maxZoom, prev)));
+  }, [minZoom, maxZoom]);
+
   const pixelsPerSecond = BASE_PIXELS_PER_SECOND * timelineZoom;
-  const trackWidthPx = Math.max(1, viewDuration * pixelsPerSecond);
+  const trackWidthPx = Math.max(100, viewDuration * pixelsPerSecond);
 
   useEffect(() => {
     ensureThumbnails();
@@ -637,7 +702,35 @@ export default function Timeline() {
         <div className="flex items-center gap-3 mr-12">
           <span className="text-zinc-500 text-xs">{t('zoom')} ({timelineZoom.toFixed(1)}x)</span>
           <div className="w-24">
-            <Slider value={[timelineZoom]} min={1} max={10} step={0.1} onValueChange={(val) => setTimelineZoom(Array.isArray(val) ? val[0] : val as number)} />
+            {(() => {
+              let sliderValue = 1.0;
+              if (timelineZoom <= 1.0) {
+                const denom = 1.0 - minZoom;
+                sliderValue = denom > 0 ? (timelineZoom - minZoom) / denom : 0;
+              } else {
+                const denom = maxZoom - 1.0;
+                sliderValue = denom > 0 ? 1.0 + (timelineZoom - 1.0) / denom : 2.0;
+              }
+
+              return (
+                <Slider
+                  value={[sliderValue]}
+                  min={0}
+                  max={2}
+                  step={0.01}
+                  onValueChange={(val) => {
+                    const progress = Array.isArray(val) ? val[0] : val as number;
+                    let nextZoom = 1.0;
+                    if (progress <= 1.0) {
+                      nextZoom = minZoom + (1.0 - minZoom) * progress;
+                    } else {
+                      nextZoom = 1.0 + (maxZoom - 1.0) * (progress - 1.0);
+                    }
+                    setTimelineZoom(nextZoom);
+                  }}
+                />
+              );
+            })()}
           </div>
         </div>
       </div>
@@ -648,8 +741,6 @@ export default function Timeline() {
         className={`flex-1 overflow-x-scroll overflow-y-hidden custom-scrollbar pb-2 relative rounded-xl border border-zinc-800/50 bg-zinc-900/30 ${bladeMode ? 'cursor-crosshair' : ''}`}
         style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.3) inset' }}
         onPointerDown={onPanStart} onPointerMove={onPanMove} onPointerUp={onPanEnd}
-        onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
-        onAuxClick={(e) => { if (e.button === 1) e.preventDefault(); }}
       >
         <motion.div 
           ref={trackRef}
@@ -662,17 +753,31 @@ export default function Timeline() {
         >
           {/* Background Grid Lines */}
           <div className="absolute inset-0 pointer-events-none overflow-hidden">
-            {viewDuration > 0 && Array.from({ length: Math.min(Math.ceil(viewDuration / (timelineZoom > 5 ? 1 : timelineZoom > 2 ? 5 : 10)) + 1, 200) }).map((_, i) => {
-              const step = timelineZoom > 5 ? 1 : timelineZoom > 2 ? 5 : 10;
-              const sec = i * step;
-              if (sec > viewDuration) return null;
-              return <div key={i} className="absolute top-0 bottom-0 w-px bg-white/[0.03]" style={{ left: `${sec * pixelsPerSecond}px` }} />;
-            })}
+            {(() => {
+              if (viewDuration <= 0) return null;
+              const pxPerSec = pixelsPerSecond;
+              let step = 10;
+              if (pxPerSec < 0.1) step = 3600;
+              else if (pxPerSec < 0.25) step = 1800;
+              else if (pxPerSec < 0.5) step = 600;
+              else if (pxPerSec < 2) step = 300;
+              else if (pxPerSec < 5) step = 120;
+              else if (pxPerSec < 15) step = 60;
+              else step = 30;
+
+              const lines = [];
+              const totalLines = Math.floor(viewDuration / step);
+              for (let i = 0; i <= totalLines; i++) {
+                const sec = i * step;
+                lines.push(<div key={sec} className="absolute top-0 bottom-0 w-px bg-white/[0.03]" style={{ left: `${sec * pixelsPerSecond}px` }} />);
+              }
+              return lines;
+            })()}
           </div>
 
-          {/* Scrubbing Ruler */}
+          {/* Scrubbing Ruler – tall hit area for easy seeking */}
           <div 
-            className="absolute top-0 left-0 right-0 h-8 z-40 hover:bg-white/[0.02] transition-colors border-b border-zinc-800/50"
+            className="absolute top-0 left-0 right-0 h-10 z-40 hover:bg-white/[0.02] transition-colors border-b border-zinc-800/50"
             style={{ cursor: bladeMode ? 'crosshair' : 'col-resize' }}
             onPointerDown={(e) => { 
                 if (!bladeMode) { 
@@ -699,42 +804,57 @@ export default function Timeline() {
                 updateAutoPan(e.clientX, false);
             }}
           >
-            {viewDuration > 0 && Array.from({ length: Math.ceil(viewDuration) + 1 }).map((_, i) => {
-               if (i > viewDuration) return null;
-                const pxPerSec = pixelsPerSecond;
-                let majorStep = 1;
+            {(() => {
+              if (viewDuration <= 0) return null;
 
-                if (timelineTimeMode === 'minutes') {
-                  // In minutes mode, we want labels at 1:00, 2:00, or at most 0:30 increments
-                  if (pxPerSec < 2) majorStep = 300; // 5 min
-                  else if (pxPerSec < 5) majorStep = 120; // 2 min
-                  else if (pxPerSec < 15) majorStep = 60; // 1 min
-                  else majorStep = 30; // 30 sec
-                } else {
-                  // Seconds mode (legacy logic)
-                  if (pxPerSec < 4) majorStep = 60;
-                  else if (pxPerSec < 10) majorStep = 30;
-                  else if (pxPerSec < 20) majorStep = 10;
-                  else if (pxPerSec < 40) majorStep = 5;
-                }
+              const pxPerSec = pixelsPerSecond;
+              let majorStep = 1;
 
-                const isMajor = i % majorStep === 0;
-                if (!isMajor && pxPerSec <= 3) return null;
-               return (
-                 <div key={i} className="absolute bottom-0 flex flex-col items-center -translate-x-1/2 pointer-events-none" style={{ left: `${i * pixelsPerSecond}px` }}>
-                   {isMajor ? (
-                     <>
+              if (timelineTimeMode === 'minutes') {
+                if (pxPerSec < 0.1) majorStep = 3600;
+                else if (pxPerSec < 0.25) majorStep = 1800;
+                else if (pxPerSec < 0.5) majorStep = 600;
+                else if (pxPerSec < 2) majorStep = 300;
+                else if (pxPerSec < 5) majorStep = 120;
+                else if (pxPerSec < 15) majorStep = 60;
+                else majorStep = 30;
+              } else {
+                if (pxPerSec < 0.1) majorStep = 3600;
+                else if (pxPerSec < 0.25) majorStep = 1800;
+                else if (pxPerSec < 0.5) majorStep = 600;
+                else if (pxPerSec < 1) majorStep = 120;
+                else if (pxPerSec < 4) majorStep = 60;
+                else if (pxPerSec < 10) majorStep = 30;
+                else if (pxPerSec < 20) majorStep = 10;
+                else if (pxPerSec < 40) majorStep = 5;
+              }
+
+              const minorStep = pxPerSec <= 3 ? majorStep : (majorStep / 5 >= 1 ? majorStep / 5 : 1);
+              const ticks = [];
+              const totalTicksCount = Math.ceil(viewDuration / minorStep);
+
+              for (let i = 0; i <= totalTicksCount; i++) {
+                const sec = i * minorStep;
+                if (sec > viewDuration) break;
+
+                const isMajor = sec % majorStep === 0;
+                ticks.push(
+                  <div key={sec} className="absolute bottom-0 flex flex-col items-center -translate-x-1/2 pointer-events-none" style={{ left: `${sec * pixelsPerSecond}px` }}>
+                    {isMajor ? (
+                      <>
                         {timelineTimeMode !== 'hidden' && (
                           <span className="text-[9px] text-zinc-500 font-mono select-none leading-none mb-0.5">
-                            {formatTime(i)}
+                            {formatTime(sec)}
                           </span>
                         )}
-                       <div className="w-px h-2 bg-zinc-600" />
-                     </>
-                   ) : <div className="w-px h-1 bg-zinc-700/50" />}
-                 </div>
-               );
-            })}
+                        <div className="w-px h-2 bg-zinc-600" />
+                      </>
+                    ) : <div className="w-px h-1 bg-zinc-700/50" />}
+                  </div>
+                );
+              }
+              return ticks;
+            })()}
           </div>
 
           {/* Playhead */}
@@ -745,10 +865,47 @@ export default function Timeline() {
             trackRef={trackRef}
             isScrubbingRef={isScrubbing}
             dragStateRef={dragState}
+            handleScrub={handleScrub}
+            updateAutoPan={updateAutoPan}
+          />
+
+          {/* Background scrub area – click empty space to seek */}
+          <div
+            className="absolute left-0 right-0 bottom-0 z-[1]"
+            style={{ top: '40px', cursor: bladeMode ? 'crosshair' : 'col-resize' }}
+            onPointerDown={(e) => {
+              if (bladeMode) return;
+              // Only scrub if clicking on the empty background, not on a clip
+              if ((e.target as HTMLElement).closest('[data-clip-body]')) return;
+              e.currentTarget.setPointerCapture(e.pointerId);
+              isScrubbing.current = true;
+              handleScrub(e.clientX);
+              updateAutoPan(e.clientX, true);
+            }}
+            onPointerMove={(e) => {
+              if (!bladeMode && isScrubbing.current) {
+                handleScrub(e.clientX);
+                updateAutoPan(e.clientX, true);
+              }
+            }}
+            onPointerUp={(e) => {
+              if (isScrubbing.current) {
+                isScrubbing.current = false;
+                try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+                updateAutoPan(e.clientX, false);
+              }
+            }}
+            onPointerCancel={(e) => {
+              if (isScrubbing.current) {
+                isScrubbing.current = false;
+                try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+                updateAutoPan(e.clientX, false);
+              }
+            }}
           />
 
           {/* Multi-Clip Track */}
-          <div className="w-full relative flex items-center" style={{ height: 'calc(100% - 32px)', marginTop: '32px' }}>
+          <div className="w-full relative flex items-center" style={{ height: 'calc(100% - 40px)', marginTop: '40px' }}>
              {viewDuration > 0 && clips.map((clip, index) => {
                 const clipDur = getClipDuration(clip);
                 const clipStartPx = clip.startAt * pixelsPerSecond;
