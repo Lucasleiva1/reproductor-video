@@ -239,7 +239,7 @@ export default function Home() {
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger 
-                      onClick={() => window.open("/Tutorial_FG_Reproductor.pdf", "_blank")}
+                      onClick={() => window.open("/Tutorial_Flowuana.pdf", "_blank")}
                       className="inline-flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                     >
                       <BookOpen className="w-4 h-4" />

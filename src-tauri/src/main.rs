@@ -15,9 +15,9 @@ fn register_file_associations() -> Result<(), Box<dyn std::error::Error>> {
   let base_path = "Software\\Classes";
   
   // 1. Create ProgID for the application
-  let prog_id = "FG_Repro.Video";
+  let prog_id = "Flowuana.Video";
   let (key, _) = hkcu.create_subkey(format!("{}\\{}", base_path, prog_id))?;
-  key.set_value("", &"Video File handled by FG Repro")?;
+  key.set_value("", &"Video File handled by Flowuana")?;
   
   // 2. Set the DefaultIcon (use the exe's embedded icon)
   let (icon_key, _) = key.create_subkey("DefaultIcon")?;

@@ -7,7 +7,7 @@
     "distDir": "../dist"
   },
   "package": {
-    "productName": "FG_Repro",
+    "productName": "Flowuana",
     "version": "0.1.1"
   },
   "tauri": {
@@ -40,7 +40,7 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      "identifier": "com.fg-repro.app",
+      "identifier": "com.flowuana.app",
       "longDescription": "",
       "macOS": {
         "entitlements": null,
@@ -51,11 +51,14 @@
       },
       "resources": [],
       "shortDescription": "",
-      "targets": ["msi", "nsis"],
+      "targets": ["nsis"],
       "windows": {
         "certificateThumbprint": null,
         "digestAlgorithm": "sha256",
-        "timestampUrl": ""
+        "timestampUrl": "",
+        "nsis": {
+          "installerIcon": "icons/icon.ico"
+        }
       }
     },
     "security": {
@@ -69,7 +72,7 @@
         "fullscreen": false,
         "height": 800,
         "resizable": true,
-        "title": "FG Repro",
+        "title": "Flowuana",
         "width": 1280
       }
     ]

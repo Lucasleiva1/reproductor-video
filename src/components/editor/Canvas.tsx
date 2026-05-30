@@ -11,6 +11,7 @@ import React, { useState } from "react";
 import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2, RotateCcw, X, Copy, PictureInPicture2, SlidersHorizontal, Repeat2, Eye, EyeOff, Columns2, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { analyzeVideoImage, type AnalysisProgress } from "@/utils/videoAnalyzer";
+import { transcodeToPlayableMp4, type PlaybackTranscodeProgress } from "@/utils/playbackTranscoder";
 
 const ReactPlayer = React.lazy(() => import("react-player"));
 
@@ -45,6 +46,7 @@ export default function Canvas() {
   const [fsIdle, setFsIdle] = useState(false);
   const [fsFreeMode, setFsFreeMode] = useState(false);
   const [playerError, setPlayerError] = useState<string | null>(null);
+  const [playbackTranscodeProgress, setPlaybackTranscodeProgress] = useState<PlaybackTranscodeProgress | null>(null);
   const [fullscreenError, setFullscreenError] = useState<string | null>(null);
   const [showImageControls, setShowImageControls] = useState(false);
   const [loopPlayback, setLoopPlayback] = useState(false);
@@ -66,10 +68,24 @@ export default function Canvas() {
   const [compareMuted, setCompareMuted] = useState(true);
   const comparePlayerRef = useRef<any>(null);
   const compareFileInputRef = useRef<HTMLInputElement>(null);
+  const playbackFallbackAttemptsRef = useRef<Set<string>>(new Set());
+  const convertedPlaybackUrlRef = useRef<string | null>(null);
   const activeTimelineClip = findActiveClip(clips, currentTime);
   const contentDuration = getContentDuration(clips);
   const playbackDuration = contentDuration > 0 ? contentDuration : duration;
   const isTimelineGap = clips.length > 0 && !activeTimelineClip && currentTime < contentDuration;
+
+  useEffect(() => {
+    setPlayerError(null);
+  }, [videoUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (convertedPlaybackUrlRef.current) {
+        URL.revokeObjectURL(convertedPlaybackUrlRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!showImageControls) return;
@@ -735,6 +751,53 @@ export default function Canvas() {
     }
   }, [playing, clips, currentTime]);
 
+  const handlePlayerError = useCallback(async () => {
+    const sourceKey = videoPath || videoUrl || "current-video";
+    if (playbackTranscodeProgress) return;
+
+    if (playbackFallbackAttemptsRef.current.has(sourceKey)) {
+      setPlayerError("No se pudo cargar el video ni convertirlo automaticamente.");
+      return;
+    }
+
+    playbackFallbackAttemptsRef.current.add(sourceKey);
+    setPlayerError("Video no compatible. Intentando convertirlo automaticamente...");
+
+    try {
+      let input: File | Uint8Array | null = null;
+
+      if (videoPath && hasTauriIpc()) {
+        const { readBinaryFile } = await import("@tauri-apps/api/fs");
+        input = await readBinaryFile(videoPath);
+      } else if (videoUrl) {
+        const response = await fetch(videoUrl);
+        const blob = await response.blob();
+        input = new File([blob], "source-video.mp4", {
+          type: blob.type || "video/mp4",
+        });
+      }
+
+      if (!input) {
+        setPlayerError("No se pudo leer el archivo para convertirlo.");
+        return;
+      }
+
+      const result = await transcodeToPlayableMp4(input, setPlaybackTranscodeProgress);
+      if (convertedPlaybackUrlRef.current) {
+        URL.revokeObjectURL(convertedPlaybackUrlRef.current);
+      }
+      convertedPlaybackUrlRef.current = result.url;
+      setVideoFile(result.file, result.url);
+      setPlaying(true);
+      setPlayerError(null);
+    } catch (error) {
+      console.error("Playback transcode failed:", error);
+      setPlayerError("No se pudo convertir este video automaticamente.");
+    } finally {
+      setPlaybackTranscodeProgress(null);
+    }
+  }, [playbackTranscodeProgress, setPlaying, setVideoFile, videoPath, videoUrl]);
+
   const scale = zoom / 100;
   const translateX = (posX - 50) * -1;
   const translateY = (posY - 50) * -1;
@@ -949,7 +1012,7 @@ export default function Canvas() {
                           }}
                           onDuration={(d: number) => setDuration(d)}
                           onProgress={handleProgress}
-                          onError={() => setPlayerError("No se pudo cargar el video.")}
+                          onError={handlePlayerError}
                           progressInterval={100}
                           style={{
                             objectFit: 'contain',
@@ -1140,7 +1203,7 @@ export default function Canvas() {
                       }}
                       onDuration={(d: number) => setDuration(d)}
                       onProgress={handleProgress}
-                      onError={() => setPlayerError("No se pudo cargar el video.")}
+                      onError={handlePlayerError}
                       progressInterval={100}
                       style={{
                         objectFit: isFixedMode ? 'contain' : 'contain',
@@ -1321,7 +1384,7 @@ export default function Canvas() {
                   className={`absolute bottom-0 left-0 right-0 z-50 pointer-events-none ${isFullscreen ? 'px-6 sm:px-10 pb-7 pt-24' : 'px-4 sm:px-7 pb-5 pt-20'} bg-gradient-to-t from-black/80 via-black/35 to-transparent`}
                 >
                   <div
-                    className="mb-4 w-full pointer-events-auto"
+                    className="mb-1 w-full pointer-events-auto"
                     onPointerDown={(e) => e.stopPropagation()}
                   >
                     <div 
@@ -1639,9 +1702,26 @@ export default function Canvas() {
                 </motion.div>
               )}
             </AnimatePresence>
-            {(playerError || fullscreenError) && (
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[60] bg-red-500/90 text-white text-xs px-3 py-2 rounded-md shadow-lg">
-                {fullscreenError || playerError}
+            {(playbackTranscodeProgress || playerError || fullscreenError) && (
+              <div className={`absolute top-4 left-1/2 -translate-x-1/2 z-[60] text-white text-xs px-3 py-2 rounded-md shadow-lg ${
+                playbackTranscodeProgress ? "bg-blue-600/95 min-w-[280px]" : "bg-red-500/90"
+              }`}>
+                {playbackTranscodeProgress ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-4">
+                      <span>{playbackTranscodeProgress.message}</span>
+                      <span className="font-mono">{playbackTranscodeProgress.percent}%</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-white/20">
+                      <div
+                        className="h-full rounded-full bg-white transition-all"
+                        style={{ width: `${playbackTranscodeProgress.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  fullscreenError || playerError
+                )}
               </div>
             )}
           </div>
