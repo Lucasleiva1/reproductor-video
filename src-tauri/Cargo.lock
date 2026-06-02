@@ -3,8 +3,8 @@
 version = 3
 
 [[package]]
-name = "FG_Repro"
-version = "0.1.0"
+name = "Flowuana"
+version = "2.2.0"
 dependencies = [
  "serde",
  "serde_json",

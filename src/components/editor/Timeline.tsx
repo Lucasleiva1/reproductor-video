@@ -17,6 +17,7 @@ import {
 
 // --- CONFIGURACIÓN TÉCNICA ---
 const SNAP_THRESHOLD_PX = 10;
+const PLAYHEAD_HANDLE_WIDTH_PX = 8;
 const MIN_CLIP_DURATION = 0.2; // Minimum clip duration in seconds
 const BASE_PIXELS_PER_SECOND = 18;
 
@@ -160,13 +161,13 @@ function TimelinePlayhead({
         className="absolute top-0 -translate-x-1/2 w-3 h-3 rounded-sm shadow-lg bg-red-500 transform rotate-45"
         style={{ boxShadow: "0 0 8px rgba(239,68,68,0.6)", pointerEvents: 'none' }}
       />
-      {/* Full-height wide drag handle — extends above & below for easy grab */}
+      {/* Drag handle is limited to the ruler/head area so it does not block trims. */}
       <div
         className="absolute -translate-x-1/2 cursor-col-resize group/handle"
         style={{
           top: '-12px',
-          bottom: '-12px',
-          width: '32px',
+          height: '52px',
+          width: `${PLAYHEAD_HANDLE_WIDTH_PX}px`,
           pointerEvents: 'auto',
           zIndex: 60,
         }}
@@ -205,6 +206,7 @@ export default function Timeline() {
   const { t } = useTranslation();
   
   const duration = useTimeline((s) => s.duration);
+  const currentTime = useTimeline((s) => s.currentTime);
   const clips = useTimeline((s) => s.clips);
   const splitClip = useTimeline((s) => s.splitClip);
   const removeClip = useTimeline((s) => s.removeClip);
@@ -465,6 +467,24 @@ export default function Timeline() {
           newStartAt = 0;
           snapped = true;
         }
+        if (!snapped && Math.abs(newStartAt - currentTime) < snapT) {
+          const playheadTrimStart = ds.initialTrimStart + (currentTime - ds.initialStartAt);
+          const blockedByPreviousClip = otherClips.some((other) => {
+            const otherEnd = other.startAt + (other.trimEnd - other.trimStart);
+            return other.startAt < ds.initialStartAt && currentTime < otherEnd;
+          });
+
+          if (
+            playheadTrimStart >= 0 &&
+            playheadTrimStart <= maxTrimStart &&
+            currentTime >= 0 &&
+            !blockedByPreviousClip
+          ) {
+            newStartAt = currentTime;
+            newTrimStart = playheadTrimStart;
+            snapped = true;
+          }
+        }
       }
 
       store.updateClip(ds.id, { startAt: newStartAt, trimStart: newTrimStart });
@@ -500,13 +520,28 @@ export default function Timeline() {
             break;
           }
         }
+        if (!snapped && Math.abs(newEndTime - currentTime) < snapT) {
+          const playheadTrimEnd = ds.initialTrimStart + (currentTime - ds.initialStartAt);
+          const nextClipStart = otherClips
+            .filter((other) => other.startAt > ds.initialStartAt)
+            .reduce((nearest, other) => Math.min(nearest, other.startAt), Number.POSITIVE_INFINITY);
+
+          if (
+            playheadTrimEnd >= ds.initialTrimStart + MIN_CLIP_DURATION &&
+            playheadTrimEnd <= ds.initialSourceDuration &&
+            currentTime <= nextClipStart
+          ) {
+            newTrimEnd = playheadTrimEnd;
+            snapped = true;
+          }
+        }
       }
 
       store.updateClip(ds.id, { trimEnd: newTrimEnd });
     }
 
     setIsSnapped(snapped);
-  }, [clips, snappingActive, getSnapThresholdSec, pixelsPerSecond]);
+  }, [clips, currentTime, snappingActive, getSnapThresholdSec, pixelsPerSecond]);
 
   // --- AUTO-PANNING (EDGE SCROLL) LOGIC ---
   const triggerUpdateForDrag = useCallback((clientX: number) => {

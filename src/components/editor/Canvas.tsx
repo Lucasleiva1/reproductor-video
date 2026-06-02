@@ -8,7 +8,7 @@ import {
 } from "@/utils/timeline";
 import { motion, AnimatePresence } from "framer-motion";
 import React, { useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2, RotateCcw, X, Copy, PictureInPicture2, SlidersHorizontal, Repeat2, Eye, EyeOff, Columns2, Trash2 } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2, RotateCcw, X, Copy, PictureInPicture2, SlidersHorizontal, Repeat2, Eye, EyeOff, Columns2, Trash2, Camera } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { analyzeVideoImage, type AnalysisProgress } from "@/utils/videoAnalyzer";
 
@@ -25,6 +25,77 @@ const hasTauriIpc = () =>
   typeof (window as Window & { __TAURI_IPC__?: unknown }).__TAURI_IPC__ === "function" &&
   "__TAURI_METADATA__" in window;
 
+const SCREENSHOT_FOLDER_NAME = "Capturas de pantalla de Flowuana";
+const SCREENSHOT_SOUND_URL = "/sounds/camera_fotos.mp3";
+
+type ScreenshotStatus = {
+  type: "success" | "error";
+  message: string;
+  percent?: number;
+  queued?: number;
+};
+
+type ScreenshotJob = {
+  filename: string;
+  height: number;
+  video: HTMLVideoElement;
+  width: number;
+};
+
+const formatScreenshotTimestamp = (date = new Date()) => {
+  const pad = (value: number, size = 2) => value.toString().padStart(size, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+  ].join("-") + "_" + [
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
+  ].join("-") + `-${pad(date.getMilliseconds(), 3)}`;
+};
+
+const getVideoElementFromPlayer = (player: any): HTMLVideoElement | null => {
+  const internalPlayer = player?.getInternalPlayer?.();
+  if (internalPlayer instanceof HTMLVideoElement) return internalPlayer;
+  if (internalPlayer?.player instanceof HTMLVideoElement) return internalPlayer.player;
+  return null;
+};
+
+const canvasToPngBlob = (canvas: HTMLCanvasElement) =>
+  new Promise<Blob>((resolve, reject) => {
+    try {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error("No se pudo generar la imagen PNG."));
+          return;
+        }
+        resolve(blob);
+      }, "image/png");
+    } catch (error) {
+      reject(error);
+    }
+  });
+
+const stopScreenshotControlEvent = (event: React.SyntheticEvent) => {
+  event.stopPropagation();
+  event.preventDefault();
+  if ("nativeEvent" in event) {
+    (event.nativeEvent as Event).stopPropagation();
+  }
+};
+
+const downloadScreenshotInBrowser = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
 export default function Canvas() {
   const { t } = useTranslation();
   const { 
@@ -38,6 +109,14 @@ export default function Canvas() {
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const imageControlsRef = useRef<HTMLDivElement>(null);
   const screenClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const screenshotStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const screenshotSoundRef = useRef<HTMLAudioElement | null>(null);
+  const screenshotSequenceRef = useRef(0);
+  const screenshotFsApiRef = useRef<Promise<any> | null>(null);
+  const screenshotDirectoryReadyRef = useRef<Promise<void> | null>(null);
+  const screenshotCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const screenshotQueueRef = useRef<ScreenshotJob[]>([]);
+  const screenshotProcessingRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
   const [, setIsMaximized] = useState(false);
   const [volume, setVolume] = useState(0.8);
@@ -47,6 +126,9 @@ export default function Canvas() {
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [fullscreenError, setFullscreenError] = useState<string | null>(null);
   const [showImageControls, setShowImageControls] = useState(false);
+  const [screenshotModeEnabled, setScreenshotModeEnabled] = useState(false);
+  const [screenshotStatus, setScreenshotStatus] = useState<ScreenshotStatus | null>(null);
+  const [screenshotCount, setScreenshotCount] = useState(0);
   const [loopPlayback, setLoopPlayback] = useState(false);
   const [editorControlsHidden, setEditorControlsHidden] = useState(false);
   const [isCompactWindow, setIsCompactWindow] = useState(false);
@@ -70,6 +152,33 @@ export default function Canvas() {
   const contentDuration = getContentDuration(clips);
   const playbackDuration = contentDuration > 0 ? contentDuration : duration;
   const isTimelineGap = clips.length > 0 && !activeTimelineClip && currentTime < contentDuration;
+
+  useEffect(() => {
+    setPlayerError(null);
+    setScreenshotCount(0);
+    screenshotSequenceRef.current = 0;
+    screenshotQueueRef.current = [];
+    setScreenshotStatus(null);
+  }, [videoUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (screenshotStatusTimerRef.current) {
+        clearTimeout(screenshotStatusTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const audio = new Audio(SCREENSHOT_SOUND_URL);
+    audio.preload = "auto";
+    audio.volume = 0.75;
+    screenshotSoundRef.current = audio;
+
+    return () => {
+      screenshotSoundRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (!showImageControls) return;
@@ -771,6 +880,157 @@ export default function Canvas() {
   const temperatureColor = colorCorrection.temperature >= 0
     ? "rgba(255, 170, 85, 1)"
     : "rgba(95, 150, 255, 1)";
+  const showScreenshotStatus = useCallback((status: ScreenshotStatus) => {
+    setScreenshotStatus(status);
+    if (screenshotStatusTimerRef.current) clearTimeout(screenshotStatusTimerRef.current);
+    if (status.type === "error" || status.percent === undefined || status.percent >= 100) {
+      screenshotStatusTimerRef.current = setTimeout(() => {
+        setScreenshotStatus(null);
+        screenshotStatusTimerRef.current = null;
+      }, 1400);
+    } else {
+      screenshotStatusTimerRef.current = null;
+    }
+  }, []);
+  const playScreenshotSound = useCallback(() => {
+    const audio = screenshotSoundRef.current
+      ? (screenshotSoundRef.current.cloneNode(true) as HTMLAudioElement)
+      : new Audio(SCREENSHOT_SOUND_URL);
+    audio.volume = 0.75;
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+  }, []);
+  const getScreenshotFsApi = useCallback(() => {
+    if (!screenshotFsApiRef.current) {
+      screenshotFsApiRef.current = import("@tauri-apps/api/fs");
+    }
+    return screenshotFsApiRef.current;
+  }, []);
+  const ensureScreenshotDirectory = useCallback(async (fsApi: any) => {
+    if (!screenshotDirectoryReadyRef.current) {
+      screenshotDirectoryReadyRef.current = (async () => {
+        const folderExists = await fsApi.exists(SCREENSHOT_FOLDER_NAME, { dir: fsApi.BaseDirectory.Document });
+        if (!folderExists) {
+          await fsApi.createDir(SCREENSHOT_FOLDER_NAME, { dir: fsApi.BaseDirectory.Document, recursive: true });
+        }
+      })().catch((error) => {
+        screenshotDirectoryReadyRef.current = null;
+        throw error;
+      });
+    }
+
+    await screenshotDirectoryReadyRef.current;
+  }, []);
+  const processScreenshotQueue = useCallback(async () => {
+    if (screenshotProcessingRef.current) return;
+    screenshotProcessingRef.current = true;
+
+    try {
+      while (screenshotQueueRef.current.length > 0) {
+        const job = screenshotQueueRef.current.shift();
+        if (!job) continue;
+        const queuedAfterCurrent = screenshotQueueRef.current.length;
+        const queueLabel = queuedAfterCurrent > 0 ? ` En cola: ${queuedAfterCurrent}.` : "";
+
+        const canvas = screenshotCanvasRef.current ?? document.createElement("canvas");
+        screenshotCanvasRef.current = canvas;
+        canvas.width = job.width;
+        canvas.height = job.height;
+
+        const context = canvas.getContext("2d", { alpha: false });
+        if (!context) {
+          showScreenshotStatus({ type: "error", message: "No se pudo preparar la captura." });
+          continue;
+        }
+
+        try {
+          showScreenshotStatus({
+            type: "success",
+            message: `Procesando captura.${queueLabel}`,
+            percent: 12,
+            queued: queuedAfterCurrent,
+          });
+
+          context.globalCompositeOperation = "source-over";
+          context.globalAlpha = 1;
+          context.filter = "none";
+          context.drawImage(job.video, 0, 0, canvas.width, canvas.height);
+          showScreenshotStatus({
+            type: "success",
+            message: `Codificando PNG.${queueLabel}`,
+            percent: 45,
+            queued: queuedAfterCurrent,
+          });
+
+          const blob = await canvasToPngBlob(canvas);
+          showScreenshotStatus({
+            type: "success",
+            message: `Guardando captura.${queueLabel}`,
+            percent: 78,
+            queued: queuedAfterCurrent,
+          });
+
+          if (hasTauriIpc()) {
+            const fsApi = await getScreenshotFsApi();
+            await ensureScreenshotDirectory(fsApi);
+            await fsApi.writeBinaryFile(
+              `${SCREENSHOT_FOLDER_NAME}/${job.filename}`,
+              await blob.arrayBuffer(),
+              { dir: fsApi.BaseDirectory.Document }
+            );
+          } else {
+            downloadScreenshotInBrowser(blob, job.filename);
+          }
+
+          const pending = screenshotQueueRef.current.length;
+          showScreenshotStatus({
+            type: "success",
+            message: pending > 0 ? `Captura guardada. Quedan ${pending}.` : "Captura guardada.",
+            percent: 100,
+            queued: pending,
+          });
+          setScreenshotCount((count) => count + 1);
+        } catch (error) {
+          console.error("No se pudo guardar la captura:", error);
+          showScreenshotStatus({ type: "error", message: "No se pudo guardar una captura." });
+        }
+
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      }
+    } finally {
+      screenshotProcessingRef.current = false;
+    }
+  }, [ensureScreenshotDirectory, getScreenshotFsApi, showScreenshotStatus]);
+  const captureCurrentFrame = useCallback(() => {
+    const video = getVideoElementFromPlayer(playerRef.current);
+    if (!video || !activeTimelineClip || isTimelineGap) {
+      showScreenshotStatus({ type: "error", message: "El video todavia no esta listo para capturar." });
+      return;
+    }
+
+    if (video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
+      showScreenshotStatus({ type: "error", message: "El video todavia no esta listo para capturar." });
+      return;
+    }
+
+    screenshotSequenceRef.current += 1;
+    const sequence = screenshotSequenceRef.current.toString().padStart(4, "0");
+    screenshotQueueRef.current.push({
+      filename: `Flowuana-captura-${formatScreenshotTimestamp()}-${sequence}.png`,
+      height: video.videoHeight,
+      video,
+      width: video.videoWidth,
+    });
+
+    const pending = screenshotQueueRef.current.length;
+    showScreenshotStatus({
+      type: "success",
+      message: pending > 1 ? `${pending} capturas en cola.` : "Captura en cola.",
+      percent: screenshotProcessingRef.current ? undefined : 0,
+      queued: pending,
+    });
+    void processScreenshotQueue();
+  }, [activeTimelineClip, isTimelineGap, processScreenshotQueue, showScreenshotStatus]);
   const applyColorCorrection = (updates: Partial<typeof colorCorrection>) => {
     setShowOriginalPreview(false);
     setColorCorrection({ enabled: true, ...updates });
@@ -1207,6 +1467,74 @@ export default function Canvas() {
               </motion.div>
             )}
 
+            {screenshotModeEnabled && isPlayerSurface && videoUrl && (
+              <div
+                className="absolute top-4 sm:top-6 left-1/2 -translate-x-1/2 z-[95] flex flex-col items-center gap-1.5 pointer-events-auto"
+                onPointerMove={stopScreenshotControlEvent}
+                onMouseMove={stopScreenshotControlEvent}
+                onPointerDown={stopScreenshotControlEvent}
+                onDoubleClick={stopScreenshotControlEvent}
+              >
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onPointerMove={stopScreenshotControlEvent}
+                    onMouseMove={stopScreenshotControlEvent}
+                    onPointerDown={stopScreenshotControlEvent}
+                    onClick={(event) => {
+                      stopScreenshotControlEvent(event);
+                      playScreenshotSound();
+                      void captureCurrentFrame();
+                    }}
+                    onDoubleClick={stopScreenshotControlEvent}
+                    className="h-10 px-3 rounded-full bg-blue-600/95 hover:bg-blue-500 text-white border border-white/15 shadow-2xl shadow-blue-950/40 backdrop-blur-md flex items-center gap-2 transition-all active:scale-95"
+                    title="Capturar pantalla"
+                    aria-label="Capturar pantalla"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline text-xs font-semibold">Captura</span>
+                  </button>
+                  {screenshotCount > 0 && (
+                    <div className="h-7 min-w-7 rounded-full border border-white/10 bg-black/55 px-2.5 text-[11px] font-mono font-semibold text-white/85 shadow-xl backdrop-blur-md flex items-center justify-center">
+                      {screenshotCount}
+                    </div>
+                  )}
+                </div>
+                {screenshotStatus && (
+                  <div
+                    className={`w-[108px] rounded-full border px-2 py-1 text-[9px] text-white shadow-xl backdrop-blur-md ${
+                      screenshotStatus.type === "success"
+                        ? "border-white/10 bg-black/60"
+                        : "border-red-300/25 bg-red-950/80"
+                    }`}
+                    aria-live="polite"
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="sr-only">{screenshotStatus.message}</span>
+                      <span className="font-mono text-white/75">
+                        {screenshotStatus.queued !== undefined && screenshotStatus.queued > 0
+                          ? `C${screenshotStatus.queued}`
+                          : "OK"}
+                      </span>
+                      {screenshotStatus.percent !== undefined && (
+                        <span className="font-mono text-white/70">
+                          {Math.round(screenshotStatus.percent)}%
+                        </span>
+                      )}
+                    </div>
+                    {screenshotStatus.percent !== undefined && (
+                      <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/15">
+                        <div
+                          className="h-full rounded-full bg-blue-300 transition-[width] duration-200"
+                          style={{ width: `${Math.max(0, Math.min(100, screenshotStatus.percent))}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Fullscreen Mode Toggle & Window Controls (top-right) */}
             <AnimatePresence>
               {showControls && (
@@ -1321,7 +1649,7 @@ export default function Canvas() {
                   className={`absolute bottom-0 left-0 right-0 z-50 pointer-events-none ${isFullscreen ? 'px-6 sm:px-10 pb-7 pt-24' : 'px-4 sm:px-7 pb-5 pt-20'} bg-gradient-to-t from-black/80 via-black/35 to-transparent`}
                 >
                   <div
-                    className="mb-4 w-full pointer-events-auto"
+                    className="mb-1 w-full pointer-events-auto"
                     onPointerDown={(e) => e.stopPropagation()}
                   >
                     <div 
@@ -1502,6 +1830,30 @@ export default function Canvas() {
                               <div className="text-sm font-semibold">Mejorar imagen</div>
                               <div className="text-[11px] text-white/50">Los ajustes se exportan con el video</div>
                             </div>
+                          </div>
+
+                          <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-blue-300/20 bg-blue-300/10 px-3 py-2.5">
+                            <div>
+                              <div className="text-xs font-semibold text-blue-100">Modo capturas</div>
+                              <div className="text-[10px] text-blue-100/55">Deja fija la camara arriba del reproductor.</div>
+                            </div>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={screenshotModeEnabled}
+                              onClick={() => setScreenshotModeEnabled((enabled) => !enabled)}
+                              className={`relative h-5 w-9 shrink-0 rounded-full border transition-colors ${
+                                screenshotModeEnabled
+                                  ? "border-blue-300/50 bg-blue-500"
+                                  : "border-white/15 bg-white/10"
+                              }`}
+                            >
+                              <span
+                                className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                                  screenshotModeEnabled ? "translate-x-4" : "translate-x-0"
+                                }`}
+                              />
+                            </button>
                           </div>
 
                           <div className="grid grid-cols-4 gap-1.5 mb-4">

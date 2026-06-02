@@ -17,7 +17,7 @@ i18n
     resources: {
       en: {
         translation: {
-          app_name: "FG Repro",
+          app_name: "Flowuana",
           loop_enable: "Enable Loop",
           loop_disable: "Disable Loop",
           loop: "Loop",
@@ -110,7 +110,7 @@ i18n
       },
       es: {
         translation: {
-          app_name: "FG Repro",
+          app_name: "Flowuana",
           change_video: "Cambiar Video",
           resolution: "Resolución",
           drop_here: "Suelta tu video aquí",
