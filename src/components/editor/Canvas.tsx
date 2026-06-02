@@ -844,6 +844,10 @@ export default function Canvas() {
     }
   }, [playing, clips, currentTime]);
 
+  const handlePlayerError = useCallback(() => {
+    setPlayerError("No se pudo cargar este video.");
+  }, []);
+
   const scale = zoom / 100;
   const translateX = (posX - 50) * -1;
   const translateY = (posY - 50) * -1;
@@ -1209,7 +1213,7 @@ export default function Canvas() {
                           }}
                           onDuration={(d: number) => setDuration(d)}
                           onProgress={handleProgress}
-                          onError={() => setPlayerError("No se pudo cargar el video.")}
+                          onError={handlePlayerError}
                           progressInterval={100}
                           style={{
                             objectFit: 'contain',
@@ -1400,7 +1404,7 @@ export default function Canvas() {
                       }}
                       onDuration={(d: number) => setDuration(d)}
                       onProgress={handleProgress}
-                      onError={() => setPlayerError("No se pudo cargar el video.")}
+                      onError={handlePlayerError}
                       progressInterval={100}
                       style={{
                         objectFit: isFixedMode ? 'contain' : 'contain',
@@ -1992,7 +1996,7 @@ export default function Canvas() {
               )}
             </AnimatePresence>
             {(playerError || fullscreenError) && (
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[60] bg-red-500/90 text-white text-xs px-3 py-2 rounded-md shadow-lg">
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[60] text-white text-xs px-3 py-2 rounded-md shadow-lg bg-red-500/90">
                 {fullscreenError || playerError}
               </div>
             )}
