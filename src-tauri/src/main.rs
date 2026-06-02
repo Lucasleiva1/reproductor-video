@@ -3,6 +3,15 @@
 
 use tauri::Manager;
 
+const SCREENSHOT_FOLDER_NAME: &str = "Capturas de pantalla de Flowuana";
+
+fn ensure_screenshot_folder() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+  let documents = tauri::api::path::document_dir().ok_or("Documents directory not found")?;
+  let screenshot_folder = documents.join(SCREENSHOT_FOLDER_NAME);
+  std::fs::create_dir_all(&screenshot_folder)?;
+  Ok(screenshot_folder)
+}
+
 #[cfg(windows)]
 fn register_file_associations() -> Result<(), Box<dyn std::error::Error>> {
   use winreg::enums::*;
@@ -103,6 +112,10 @@ fn main() {
     }))
     .invoke_handler(tauri::generate_handler![get_initial_path, allow_file_access])
     .setup(|app| {
+      if let Err(e) = ensure_screenshot_folder() {
+        eprintln!("Failed to create screenshot folder: {}", e);
+      }
+
       // Register associations on Windows
       #[cfg(windows)]
       {

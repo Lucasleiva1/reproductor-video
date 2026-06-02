@@ -77,9 +77,9 @@ const canvasToPngBlob = (canvas: HTMLCanvasElement) =>
     }
   });
 
-const stopScreenshotControlEvent = (event: React.SyntheticEvent) => {
+const stopScreenshotControlEvent = (event: React.SyntheticEvent, preventDefault = false) => {
   event.stopPropagation();
-  event.preventDefault();
+  if (preventDefault) event.preventDefault();
   if ("nativeEvent" in event) {
     (event.nativeEvent as Event).stopPropagation();
   }
@@ -977,11 +977,10 @@ export default function Canvas() {
           if (hasTauriIpc()) {
             const fsApi = await getScreenshotFsApi();
             await ensureScreenshotDirectory(fsApi);
-            await fsApi.writeBinaryFile(
-              `${SCREENSHOT_FOLDER_NAME}/${job.filename}`,
-              await blob.arrayBuffer(),
-              { dir: fsApi.BaseDirectory.Document }
-            );
+            const pngBytes = new Uint8Array(await blob.arrayBuffer());
+            await fsApi.writeBinaryFile(`${SCREENSHOT_FOLDER_NAME}/${job.filename}`, pngBytes, {
+              dir: fsApi.BaseDirectory.Document,
+            });
           } else {
             downloadScreenshotInBrowser(blob, job.filename);
           }
@@ -1007,7 +1006,7 @@ export default function Canvas() {
   }, [ensureScreenshotDirectory, getScreenshotFsApi, showScreenshotStatus]);
   const captureCurrentFrame = useCallback(() => {
     const video = getVideoElementFromPlayer(playerRef.current);
-    if (!video || !activeTimelineClip || isTimelineGap) {
+    if (!video || isTimelineGap) {
       showScreenshotStatus({ type: "error", message: "El video todavia no esta listo para capturar." });
       return;
     }
@@ -1034,7 +1033,7 @@ export default function Canvas() {
       queued: pending,
     });
     void processScreenshotQueue();
-  }, [activeTimelineClip, isTimelineGap, processScreenshotQueue, showScreenshotStatus]);
+  }, [isTimelineGap, processScreenshotQueue, showScreenshotStatus]);
   const applyColorCorrection = (updates: Partial<typeof colorCorrection>) => {
     setShowOriginalPreview(false);
     setColorCorrection({ enabled: true, ...updates });
