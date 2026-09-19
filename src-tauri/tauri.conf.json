@@ -8,21 +8,28 @@
   },
   "package": {
     "productName": "Flowuana",
-    "version": "2.2.0"
+    "version": "2.2.1"
   },
   "tauri": {
     "allowlist": {
       "all": false,
       "fs": {
         "all": true,
-        "scope": ["**"]
+        "scope": [
+          "**"
+        ]
       },
       "protocol": {
         "asset": true,
-        "assetScope": ["**"]
+        "assetScope": [
+          "**"
+        ]
       },
       "window": {
         "all": true
+      },
+      "process": {
+        "relaunch": true
       }
     },
     "bundle": {
@@ -51,7 +58,10 @@
       },
       "resources": [],
       "shortDescription": "",
-      "targets": ["nsis"],
+      "targets": [
+        "nsis",
+        "updater"
+      ],
       "windows": {
         "certificateThumbprint": null,
         "digestAlgorithm": "sha256",
@@ -65,7 +75,15 @@
       "csp": null
     },
     "updater": {
-      "active": false
+      "active": true,
+      "dialog": false,
+      "endpoints": [
+        "https://github.com/Lucasleiva1/reproductor-video/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ4N0I5RThCRUVERTlCRjAKUldUd205N3VpNTU3U0pUalAvaCtNTnduR2VYYyt3YTc3eVJ1dHVSclZwMjcxVWhhOVBGRU1UZjcK",
+      "windows": {
+        "installMode": "passive"
+      }
     },
     "windows": [
       {

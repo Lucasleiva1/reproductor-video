@@ -25,7 +25,6 @@ const hasTauriIpc = () =>
   typeof (window as Window & { __TAURI_IPC__?: unknown }).__TAURI_IPC__ === "function" &&
   "__TAURI_METADATA__" in window;
 
-const SCREENSHOT_FOLDER_NAME = "Capturas de pantalla de Flowuana";
 const SCREENSHOT_SOUND_URL = "/sounds/camera_fotos.mp3";
 
 type ScreenshotStatus = {
@@ -112,8 +111,7 @@ export default function Canvas() {
   const screenshotStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const screenshotSoundRef = useRef<HTMLAudioElement | null>(null);
   const screenshotSequenceRef = useRef(0);
-  const screenshotFsApiRef = useRef<Promise<any> | null>(null);
-  const screenshotDirectoryReadyRef = useRef<Promise<void> | null>(null);
+  const screenshotNativeApiRef = useRef<Promise<typeof import("@tauri-apps/api/tauri")> | null>(null);
   const screenshotCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const screenshotQueueRef = useRef<ScreenshotJob[]>([]);
   const screenshotProcessingRef = useRef(false);
@@ -137,6 +135,44 @@ export default function Canvas() {
   const imageScanPercent = imageScanProgress
     ? Math.round((imageScanProgress.current / Math.max(1, imageScanProgress.total)) * 100)
     : 0;
+  const imagePanelRef = useRef<HTMLDivElement>(null);
+  const [imagePanelFit, setImagePanelFit] = useState<{ scale: number; maxHeight?: number }>({ scale: 1 });
+
+  // Shrink the image panel so it always fits in the visible video area
+  useEffect(() => {
+    if (!showImageControls) return;
+    const MIN_SCALE = 0.6;
+    const fit = () => {
+      const panel = imagePanelRef.current;
+      const anchor = imageControlsRef.current;
+      const container = canvasContainerRef.current;
+      if (!panel || !anchor || !container) return;
+      // Layout offsets ignore the controls' slide-in animation, unlike getBoundingClientRect
+      let anchorTop = 0;
+      for (let el: HTMLElement | null = anchor; el && el !== container; el = el.offsetParent as HTMLElement | null) {
+        anchorTop += el.offsetTop;
+      }
+      // Panel sits 8px above the button (bottom-12 on a 40px button), plus an 8px margin at the top
+      const available = anchorTop - 8 - 8;
+      const natural = panel.scrollHeight;
+      if (available <= 0 || natural <= 0) return;
+      const scale = Math.max(MIN_SCALE, Math.min(1, available / natural));
+      const maxHeight = natural * scale > available ? available / scale : undefined;
+      setImagePanelFit((prev) =>
+        Math.abs(prev.scale - scale) < 0.005 && prev.maxHeight === maxHeight ? prev : { scale, maxHeight }
+      );
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    if (canvasContainerRef.current) observer.observe(canvasContainerRef.current);
+    if (imagePanelRef.current?.firstElementChild) observer.observe(imagePanelRef.current.firstElementChild);
+    window.addEventListener("resize", fit);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", fit);
+    };
+  }, [showImageControls, imageScanProgress, imageAnalysis]);
+
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fsTransitionChainRef = useRef<Promise<void>>(Promise.resolve());
   const sampleLoadTokenRef = useRef(0);
@@ -904,26 +940,11 @@ export default function Canvas() {
     audio.currentTime = 0;
     audio.play().catch(() => {});
   }, []);
-  const getScreenshotFsApi = useCallback(() => {
-    if (!screenshotFsApiRef.current) {
-      screenshotFsApiRef.current = import("@tauri-apps/api/fs");
+  const getScreenshotNativeApi = useCallback(() => {
+    if (!screenshotNativeApiRef.current) {
+      screenshotNativeApiRef.current = import("@tauri-apps/api/tauri");
     }
-    return screenshotFsApiRef.current;
-  }, []);
-  const ensureScreenshotDirectory = useCallback(async (fsApi: any) => {
-    if (!screenshotDirectoryReadyRef.current) {
-      screenshotDirectoryReadyRef.current = (async () => {
-        const folderExists = await fsApi.exists(SCREENSHOT_FOLDER_NAME, { dir: fsApi.BaseDirectory.Document });
-        if (!folderExists) {
-          await fsApi.createDir(SCREENSHOT_FOLDER_NAME, { dir: fsApi.BaseDirectory.Document, recursive: true });
-        }
-      })().catch((error) => {
-        screenshotDirectoryReadyRef.current = null;
-        throw error;
-      });
-    }
-
-    await screenshotDirectoryReadyRef.current;
+    return screenshotNativeApiRef.current;
   }, []);
   const processScreenshotQueue = useCallback(async () => {
     if (screenshotProcessingRef.current) return;
@@ -975,11 +996,11 @@ export default function Canvas() {
           });
 
           if (hasTauriIpc()) {
-            const fsApi = await getScreenshotFsApi();
-            await ensureScreenshotDirectory(fsApi);
+            const nativeApi = await getScreenshotNativeApi();
             const pngBytes = new Uint8Array(await blob.arrayBuffer());
-            await fsApi.writeBinaryFile(`${SCREENSHOT_FOLDER_NAME}/${job.filename}`, pngBytes, {
-              dir: fsApi.BaseDirectory.Document,
+            await nativeApi.invoke("save_screenshot_png", {
+              filename: job.filename,
+              bytes: Array.from(pngBytes),
             });
           } else {
             downloadScreenshotInBrowser(blob, job.filename);
@@ -995,7 +1016,11 @@ export default function Canvas() {
           setScreenshotCount((count) => count + 1);
         } catch (error) {
           console.error("No se pudo guardar la captura:", error);
-          showScreenshotStatus({ type: "error", message: "No se pudo guardar una captura." });
+          const detail = error instanceof Error ? error.message : String(error);
+          showScreenshotStatus({
+            type: "error",
+            message: detail ? `Error: ${detail}` : "No se pudo guardar una captura.",
+          });
         }
 
         await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
@@ -1003,10 +1028,10 @@ export default function Canvas() {
     } finally {
       screenshotProcessingRef.current = false;
     }
-  }, [ensureScreenshotDirectory, getScreenshotFsApi, showScreenshotStatus]);
+  }, [getScreenshotNativeApi, showScreenshotStatus]);
   const captureCurrentFrame = useCallback(() => {
     const video = getVideoElementFromPlayer(playerRef.current);
-    if (!video || isTimelineGap) {
+    if (!video) {
       showScreenshotStatus({ type: "error", message: "El video todavia no esta listo para capturar." });
       return;
     }
@@ -1033,7 +1058,7 @@ export default function Canvas() {
       queued: pending,
     });
     void processScreenshotQueue();
-  }, [isTimelineGap, processScreenshotQueue, showScreenshotStatus]);
+  }, [processScreenshotQueue, showScreenshotStatus]);
   const applyColorCorrection = (updates: Partial<typeof colorCorrection>) => {
     setShowOriginalPreview(false);
     setColorCorrection({ enabled: true, ...updates });
@@ -1154,7 +1179,7 @@ export default function Canvas() {
       className={`bg-[#121212] overflow-hidden backdrop-blur-none ${
         isWebCompactWindow
           ? 'fixed bottom-6 right-6 z-[100] w-[min(420px,calc(100vw-32px))] h-[260px] max-h-[calc(100vh-32px)] rounded-lg border border-white/15 shadow-2xl p-0'
-          : `w-full h-full relative ${isFixedMode ? 'p-0' : 'p-4 sm:p-8 lg:p-12'}`
+          : `w-full h-full relative ${isFixedMode ? 'p-0' : 'px-4 pt-4 sm:px-8 sm:pt-8 lg:px-12 lg:pt-12'}`
       }`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -1505,30 +1530,38 @@ export default function Canvas() {
                 </div>
                 {screenshotStatus && (
                   <div
-                    className={`w-[108px] rounded-full border px-2 py-1 text-[9px] text-white shadow-xl backdrop-blur-md ${
+                    className={`rounded-full border px-2 py-1 text-[9px] text-white shadow-xl backdrop-blur-md ${
                       screenshotStatus.type === "success"
-                        ? "border-white/10 bg-black/60"
-                        : "border-red-300/25 bg-red-950/80"
+                        ? "w-[108px] border-white/10 bg-black/60"
+                        : "min-w-[150px] max-w-[260px] border-red-300/25 bg-red-950/90"
                     }`}
                     aria-live="polite"
                   >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="sr-only">{screenshotStatus.message}</span>
-                      <span className="font-mono text-white/75">
-                        {screenshotStatus.queued !== undefined && screenshotStatus.queued > 0
-                          ? `C${screenshotStatus.queued}`
-                          : "OK"}
+                    {screenshotStatus.type === "error" ? (
+                      <span className="block truncate font-medium text-red-50">
+                        {screenshotStatus.message}
                       </span>
-                      {screenshotStatus.percent !== undefined && (
-                        <span className="font-mono text-white/70">
-                          {Math.round(screenshotStatus.percent)}%
+                    ) : (
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="sr-only">{screenshotStatus.message}</span>
+                        <span className="font-mono text-white/75">
+                          {screenshotStatus.queued !== undefined && screenshotStatus.queued > 0
+                            ? `C${screenshotStatus.queued}`
+                            : "OK"}
                         </span>
-                      )}
-                    </div>
+                        {screenshotStatus.percent !== undefined && (
+                          <span className="font-mono text-white/70">
+                            {Math.round(screenshotStatus.percent)}%
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {screenshotStatus.percent !== undefined && (
                       <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/15">
                         <div
-                          className="h-full rounded-full bg-blue-300 transition-[width] duration-200"
+                          className={`h-full rounded-full transition-[width] duration-200 ${
+                            screenshotStatus.type === "success" ? "bg-blue-300" : "bg-red-300"
+                          }`}
                           style={{ width: `${Math.max(0, Math.min(100, screenshotStatus.percent))}%` }}
                         />
                       </div>
@@ -1823,11 +1856,19 @@ export default function Canvas() {
                     <AnimatePresence>
                       {showImageControls && (
                         <motion.div
-                          initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                          className="absolute right-0 bottom-12 w-[min(320px,calc(100vw-24px))] rounded-lg border border-white/10 bg-black/85 backdrop-blur-xl shadow-2xl p-4 text-white"
+                          initial={{ opacity: 0, y: 8, scale: imagePanelFit.scale * 0.96 }}
+                          animate={{ opacity: 1, y: 0, scale: imagePanelFit.scale }}
+                          exit={{ opacity: 0, y: 8, scale: imagePanelFit.scale * 0.96 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute right-0 bottom-12 z-10"
+                          style={{ transformOrigin: "bottom right" }}
                         >
+                        <div
+                          ref={imagePanelRef}
+                          className="w-[min(320px,calc(100vw-24px))] overflow-y-auto rounded-lg border border-white/10 bg-black/85 backdrop-blur-xl shadow-2xl text-white"
+                          style={{ maxHeight: imagePanelFit.maxHeight }}
+                        >
+                          <div className="p-4">
                           <div className="mb-3">
                             <div>
                               <div className="text-sm font-semibold">Mejorar imagen</div>
@@ -1957,6 +1998,8 @@ export default function Canvas() {
                           >
                             Reset imagen
                           </button>
+                          </div>
+                        </div>
                         </motion.div>
                       )}
                     </AnimatePresence>

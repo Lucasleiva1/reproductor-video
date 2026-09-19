@@ -2,7 +2,7 @@
 import { useTimeline, type Clip } from "@/hooks/useTimeline";
 import { Slider } from "@/components/ui/slider";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { memo, useState, useRef, useCallback, useEffect } from "react";
 import { FaPlay, FaPause } from "react-icons/fa";
 import { Trash2, Magnet, Lightbulb } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -202,11 +202,10 @@ function TimelinePlayhead({
   );
 }
 
-export default function Timeline() {
+function Timeline() {
   const { t } = useTranslation();
   
   const duration = useTimeline((s) => s.duration);
-  const currentTime = useTimeline((s) => s.currentTime);
   const clips = useTimeline((s) => s.clips);
   const splitClip = useTimeline((s) => s.splitClip);
   const removeClip = useTimeline((s) => s.removeClip);
@@ -235,13 +234,37 @@ export default function Timeline() {
   // ResizeObserver to dynamically obtain container width
   useEffect(() => {
     if (!scrollContainerRef.current) return;
+    let lastWidth = -1;
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width || 800);
+        // Height-only changes (dragging the editor divider) must not re-render the timeline
+        const width = Math.round(entry.contentRect.width) || 800;
+        if (width === lastWidth) continue;
+        lastWidth = width;
+        setContainerWidth(width);
       }
     });
     observer.observe(scrollContainerRef.current);
     return () => observer.disconnect();
+  }, []);
+
+  // The ruler only renders ticks around the visible area; long videos produced thousands
+  // of DOM nodes that made every layout (and the editor divider drag) slow.
+  // The window is tracked in whole screen-widths so scrolling inside one doesn't re-render.
+  const [rulerWindow, setRulerWindow] = useState(0);
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    let last = -1;
+    const update = () => {
+      const idx = Math.floor(el.scrollLeft / Math.max(200, el.clientWidth));
+      if (idx === last) return;
+      last = idx;
+      setRulerWindow(idx);
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    return () => el.removeEventListener("scroll", update);
   }, []);
 
   const fitZoom = ((containerWidth * 0.5) / viewDuration) / BASE_PIXELS_PER_SECOND;
@@ -380,6 +403,8 @@ export default function Timeline() {
 
   // --- DRAG PROCESSING LOGIC ---
   const processDrag = useCallback((clientX: number) => {
+    // Read the playhead on demand: subscribing re-rendered the whole timeline every frame while playing
+    const currentTime = useTimeline.getState().currentTime;
     const ds = dragState.current;
     if (!ds.id || !ds.mode || !trackRef.current || !scrollContainerRef.current) return;
 
@@ -541,7 +566,7 @@ export default function Timeline() {
     }
 
     setIsSnapped(snapped);
-  }, [clips, currentTime, snappingActive, getSnapThresholdSec, pixelsPerSecond]);
+  }, [clips, snappingActive, getSnapThresholdSec, pixelsPerSecond]);
 
   // --- AUTO-PANNING (EDGE SCROLL) LOGIC ---
   const triggerUpdateForDrag = useCallback((clientX: number) => {
@@ -867,8 +892,12 @@ export default function Timeline() {
               const minorStep = pxPerSec <= 3 ? majorStep : (majorStep / 5 >= 1 ? majorStep / 5 : 1);
               const ticks = [];
               const totalTicksCount = Math.ceil(viewDuration / minorStep);
+              // One screen-width of margin on each side of the visible one
+              const windowPx = Math.max(200, containerWidth);
+              const firstTick = Math.max(0, Math.floor(((rulerWindow - 1) * windowPx) / pxPerSec / minorStep));
+              const lastTick = Math.min(totalTicksCount, Math.ceil(((rulerWindow + 2) * windowPx) / pxPerSec / minorStep));
 
-              for (let i = 0; i <= totalTicksCount; i++) {
+              for (let i = firstTick; i <= lastTick; i++) {
                 const sec = i * minorStep;
                 if (sec > viewDuration) break;
 
@@ -1092,3 +1121,6 @@ export default function Timeline() {
     </div>
   );
 }
+
+// The parent re-renders on every playback frame; the timeline only depends on its own store selectors
+export default memo(Timeline);

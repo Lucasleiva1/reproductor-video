@@ -1,6 +1,6 @@
 [package]
 name = "Flowuana"
-version = "2.2.0"
+version = "2.2.1"
 description = "A Tauri App"
 authors = ["you"]
 license = ""
@@ -17,7 +17,7 @@ tauri-build = { version = "1.5.5", features = [] }
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-tauri = { version = "1.8.1", features = [ "window-all", "fs-all", "protocol-asset"] }
+tauri = { version = "1.8.1", features = [ "window-all", "fs-all", "protocol-asset", "updater", "process-relaunch"] }
 tauri-plugin-single-instance = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v1" }
 winreg = "0.10.1"
 

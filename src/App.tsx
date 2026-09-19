@@ -9,12 +9,51 @@ import { Button } from "@/components/ui/button";
 import { Upload, LayoutPanelLeft, Keyboard, BookOpen } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useTranslation } from "react-i18next";
-import { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, useRef, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export default function Home() {
   const [showInspector, setShowInspector] = useState(true);
+  const [bottomHeight, setBottomHeight] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem("editorPanelHeight"));
+      if (saved > 0) return saved;
+    } catch {}
+    return 352;
+  });
+  const mainRef = useRef<HTMLElement>(null);
+  const bottomPanelRef = useRef<HTMLDivElement>(null);
+  // Drag state lives in refs and the height is written straight to the DOM, so
+  // dragging never re-renders the player or the timeline (that made playback stutter).
+  const panelDragRef = useRef<{ height: number } | null>(null);
+
+  const startPanelResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    panelDragRef.current = { height: bottomHeight };
+    e.currentTarget.dataset.dragging = "true";
+    mainRef.current?.classList.add("select-none", "cursor-row-resize");
+  };
+  const movePanelResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = panelDragRef.current;
+    if (!drag || !mainRef.current) return;
+    const rect = mainRef.current.getBoundingClientRect();
+    // Keep at least 150px of video on top and 60px of editor at the bottom
+    drag.height = Math.round(Math.max(60, Math.min(rect.height - 150, rect.bottom - e.clientY)));
+    if (bottomPanelRef.current) bottomPanelRef.current.style.height = `${drag.height}px`;
+  };
+  const endPanelResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = panelDragRef.current;
+    if (!drag) return;
+    panelDragRef.current = null;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+    delete e.currentTarget.dataset.dragging;
+    mainRef.current?.classList.remove("select-none", "cursor-row-resize");
+    if (bottomPanelRef.current) bottomPanelRef.current.style.height = `${drag.height}px`;
+    setBottomHeight(drag.height);
+    try { localStorage.setItem("editorPanelHeight", String(drag.height)); } catch {}
+  };
   const { t, i18n } = useTranslation();
   const { appMode, setVideoFile, loadVideoByPath, resolution, setResolution, duration, setPlaying, setCurrentTime, canvasScale, setCanvasScale, isFullscreen, headerShowLang, headerShowRes, headerShowShortcuts, headerShowTheme, headerShowTutorial } = useTimeline();
   
@@ -290,7 +329,7 @@ export default function Home() {
       )}
 
       {/* Main Editing Area */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main ref={mainRef} className="flex-1 flex flex-col overflow-hidden">
         {/* Top: Video Preview Workspace */}
         <div className={`flex-1 bg-[#121212] flex flex-col relative w-full shadow-inner ${isFullscreen ? '' : 'border-b border-border'}`}>
           <Suspense fallback={<div className="flex-1 flex items-center justify-center text-muted-foreground animate-pulse">Cargando editor…</div>}>
@@ -299,7 +338,7 @@ export default function Home() {
 
           {/* Canvas Zoom Indicator */}
           {duration > 0 && !isFullscreen && appMode === "editor" && (
-            <div className="absolute bottom-3 left-3 z-20 bg-black/60 backdrop-blur-sm text-white text-[11px] font-mono px-2.5 py-1 rounded-md border border-white/10 select-none tabular-nums">
+            <div className="absolute top-3 left-3 z-20 bg-black/60 backdrop-blur-sm text-white text-[11px] font-mono px-2.5 py-1 rounded-md border border-white/10 select-none tabular-nums">
               {t('canvas_zoom')}: {(canvasScale * 100).toFixed(0)}%
             </div>
           )}
@@ -307,7 +346,19 @@ export default function Home() {
         
         {/* Bottom Panel: Editing Tools */}
         {!isFullscreen && appMode === "editor" && (
-        <div className="h-[22rem] bg-background flex shrink-0 w-full z-10 relative">
+        <div ref={bottomPanelRef} style={{ height: bottomHeight, maxHeight: "calc(100% - 150px)" }} className="bg-background flex shrink-0 w-full z-10 relative">
+          {/* Draggable divider between the video and the editor */}
+          <div
+            onPointerDown={startPanelResize}
+            onPointerMove={movePanelResize}
+            onPointerUp={endPanelResize}
+            onPointerCancel={endPanelResize}
+            className="absolute -top-1.5 left-0 right-0 h-3 z-40 cursor-row-resize group flex items-center justify-center"
+            title="Arrastrar para cambiar el tamaño"
+          >
+            <div className="w-full h-px transition-colors bg-transparent group-hover:bg-indigo-500/70 group-data-[dragging=true]:bg-indigo-500" />
+            <div className="absolute w-12 h-1 rounded-full transition-colors bg-white/20 group-hover:bg-indigo-500/80 group-data-[dragging=true]:bg-indigo-500" />
+          </div>
           <div className="flex-1 flex flex-col h-full border-r border-border overflow-hidden">
              <Timeline />
           </div>

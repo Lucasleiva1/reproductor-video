@@ -37,5 +37,9 @@ export default defineConfig({
       "Cross-Origin-Embedder-Policy": "require-corp",
       "Cross-Origin-Opener-Policy": "same-origin",
     },
+    // Rust build output lives here; watching it crashes Vite with EBUSY on Windows
+    watch: {
+      ignored: ["**/src-tauri/**", "**/backups/**"],
+    },
   },
 })

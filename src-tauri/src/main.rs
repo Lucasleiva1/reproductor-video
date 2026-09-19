@@ -94,6 +94,30 @@ fn allow_file_access(app_handle: tauri::AppHandle, path: String) -> Result<(), S
   Ok(())
 }
 
+#[tauri::command]
+fn save_screenshot_png(filename: String, bytes: Vec<u8>) -> Result<String, String> {
+  if bytes.is_empty() {
+    return Err("La captura PNG esta vacia.".into());
+  }
+
+  let clean_filename = std::path::Path::new(&filename)
+    .file_name()
+    .and_then(|name| name.to_str())
+    .ok_or_else(|| "Nombre de captura invalido.".to_string())?;
+
+  if !clean_filename.to_ascii_lowercase().ends_with(".png") {
+    return Err("La captura debe ser PNG.".into());
+  }
+
+  let folder = ensure_screenshot_folder()
+    .map_err(|e| format!("No se pudo preparar la carpeta de capturas: {}", e))?;
+  let target = folder.join(clean_filename);
+  std::fs::write(&target, bytes)
+    .map_err(|e| format!("No se pudo escribir la captura PNG: {}", e))?;
+
+  Ok(target.to_string_lossy().to_string())
+}
+
 fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
@@ -110,7 +134,7 @@ fn main() {
       
       app.emit_all("path-selected", argv).unwrap();
     }))
-    .invoke_handler(tauri::generate_handler![get_initial_path, allow_file_access])
+    .invoke_handler(tauri::generate_handler![get_initial_path, allow_file_access, save_screenshot_png])
     .setup(|app| {
       if let Err(e) = ensure_screenshot_folder() {
         eprintln!("Failed to create screenshot folder: {}", e);
