@@ -118,6 +118,20 @@ fn save_screenshot_png(filename: String, bytes: Vec<u8>) -> Result<String, Strin
   Ok(target.to_string_lossy().to_string())
 }
 
+/// Size + last modification time: identifies a video file so the timeline filmstrip cache
+/// can be reused when the same file is opened again (and discarded if the file changes).
+#[tauri::command]
+fn file_fingerprint(path: String) -> Result<String, String> {
+  let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+  let modified = meta
+    .modified()
+    .ok()
+    .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+    .map(|d| d.as_millis())
+    .unwrap_or(0);
+  Ok(format!("{}-{}", meta.len(), modified))
+}
+
 fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
@@ -134,7 +148,7 @@ fn main() {
       
       app.emit_all("path-selected", argv).unwrap();
     }))
-    .invoke_handler(tauri::generate_handler![get_initial_path, allow_file_access, save_screenshot_png])
+    .invoke_handler(tauri::generate_handler![get_initial_path, allow_file_access, save_screenshot_png, file_fingerprint])
     .setup(|app| {
       if let Err(e) = ensure_screenshot_folder() {
         eprintln!("Failed to create screenshot folder: {}", e);

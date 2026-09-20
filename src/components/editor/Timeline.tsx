@@ -1,12 +1,13 @@
 
-import { useTimeline, type Clip } from "@/hooks/useTimeline";
+import { useTimeline } from "@/hooks/useTimeline";
 import { Slider } from "@/components/ui/slider";
 import { motion, AnimatePresence } from "framer-motion";
 import { memo, useState, useRef, useCallback, useEffect } from "react";
 import { FaPlay, FaPause } from "react-icons/fa";
-import { Trash2, Magnet, Lightbulb } from "lucide-react";
+import { Trash2, Magnet, Lightbulb, Scissors, Minus, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { getClipDuration, getContentDuration } from "@/utils/timeline";
+import { FilmstripTiles, useFilmstripSource } from "./Filmstrip";
 
 import {
   ContextMenu,
@@ -32,58 +33,6 @@ const CLIP_COLORS = [
 ];
 
 type DragMode = 'move' | 'trim-left' | 'trim-right' | null;
-
-function TimelineFilmstrip({
-  clip,
-  clipWidthPx,
-  thumbnails,
-  isGeneratingThumbnails,
-}: {
-  clip: Clip;
-  clipWidthPx: number;
-  thumbnails: string[];
-  isGeneratingThumbnails: boolean;
-}) {
-  const clipDur = getClipDuration(clip);
-  const usableThumbnails = thumbnails.filter(Boolean);
-  const thumbCount = usableThumbnails.length;
-  const tileTargetWidth = 104;
-  const tileCount = Math.max(1, Math.min(64, Math.ceil(clipWidthPx / tileTargetWidth)));
-
-  if (thumbCount === 0) {
-    return (
-      <div className="absolute inset-x-0 top-1/2 h-[46px] -translate-y-1/2 overflow-hidden bg-black/90 ring-1 ring-black">
-        <div className={`h-full w-full ${isGeneratingThumbnails ? 'animate-pulse bg-gradient-to-r from-zinc-950 via-zinc-800 to-zinc-950' : 'bg-zinc-950'}`} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="absolute inset-x-0 top-1/2 h-[46px] -translate-y-1/2 overflow-hidden bg-black ring-1 ring-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]">
-      <div className="flex h-full gap-px bg-black">
-        {Array.from({ length: tileCount }).map((_, i) => {
-          const tileMidpoint = (i + 0.5) / tileCount;
-          const sourceTime = clip.trimStart + tileMidpoint * clipDur;
-          const thumbIndex = Math.max(
-            0,
-            Math.min(thumbCount - 1, Math.round((sourceTime / Math.max(0.1, clip.sourceDuration)) * (thumbCount - 1)))
-          );
-
-          return (
-            <div key={i} className="h-full min-w-0 flex-1 overflow-hidden bg-black">
-              <img
-                src={usableThumbnails[thumbIndex]}
-                alt=""
-                draggable={false}
-                className="h-full w-full select-none object-cover opacity-95 contrast-110 saturate-110"
-              />
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 interface PlayheadProps {
   pixelsPerSecond: number;
@@ -209,16 +158,12 @@ function Timeline() {
   const clips = useTimeline((s) => s.clips);
   const splitClip = useTimeline((s) => s.splitClip);
   const removeClip = useTimeline((s) => s.removeClip);
-  const videoFile = useTimeline((s) => s.videoFile);
   const playing = useTimeline((s) => s.playing);
   const setPlaying = useTimeline((s) => s.setPlaying);
   const setCurrentTime = useTimeline((s) => s.setCurrentTime);
   const bladeModeLimit = useTimeline((s) => s.bladeModeLimit);
   const timelineTimeMode = useTimeline((s) => s.timelineTimeMode);
   const showTips = useTimeline((s) => s.showTips);
-  const thumbnails = useTimeline((s) => s.thumbnails);
-  const isGeneratingThumbnails = useTimeline((s) => s.isGeneratingThumbnails);
-  const ensureThumbnails = useTimeline((s) => s.ensureThumbnails);
 
   const [timelineZoom, setTimelineZoom] = useState(1);
   const [containerWidth, setContainerWidth] = useState(800);
@@ -255,9 +200,12 @@ function Timeline() {
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
+    // Must use the same width as the render window below, or the drawn range drifts
+    // away from the visible one the further you scroll.
+    const chunk = Math.max(200, containerWidth);
     let last = -1;
     const update = () => {
-      const idx = Math.floor(el.scrollLeft / Math.max(200, el.clientWidth));
+      const idx = Math.floor(el.scrollLeft / chunk);
       if (idx === last) return;
       last = idx;
       setRulerWindow(idx);
@@ -265,7 +213,14 @@ function Timeline() {
     update();
     el.addEventListener("scroll", update, { passive: true });
     return () => el.removeEventListener("scroll", update);
-  }, []);
+  }, [containerWidth]);
+
+  // Track-space range worth rendering: the visible screen-width plus one on each side
+  // (the track starts after a 16px margin inside the scroll container).
+  const renderWindowPx = Math.max(200, containerWidth);
+  const viewStartPx = (rulerWindow - 1) * renderWindowPx - 16;
+  const viewEndPx = (rulerWindow + 2) * renderWindowPx;
+  const filmstripSource = useFilmstripSource();
 
   const fitZoom = ((containerWidth * 0.5) / viewDuration) / BASE_PIXELS_PER_SECOND;
   const minZoom = Math.max(0.001, Math.min(1, fitZoom));
@@ -278,10 +233,6 @@ function Timeline() {
 
   const pixelsPerSecond = BASE_PIXELS_PER_SECOND * timelineZoom;
   const trackWidthPx = Math.max(100, viewDuration * pixelsPerSecond);
-
-  useEffect(() => {
-    ensureThumbnails();
-  }, [ensureThumbnails, clips.length]);
 
   // --- Usage Tips ---
   const TIPS_COUNT = 11;
@@ -693,75 +644,100 @@ function Timeline() {
 
   return (
     <div className="flex-1 flex w-full relative bg-[#0c0c0e]/95 backdrop-blur-sm p-6 flex-col gap-4 overflow-hidden">
-      {/* Header Row */}
-      <div className="flex justify-between items-center w-full">
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-lg text-white tracking-tight flex items-center gap-3">
-             {videoFile?.name || t('timeline_title')}
-             <button 
-               onClick={() => setPlaying(!playing)} 
-               aria-label={playing ? "Pausar reproducción" : "Iniciar reproducción"}
-               className="flex items-center justify-center bg-indigo-600 hover:bg-indigo-500 text-white rounded-full w-9 h-9 transition-colors shadow-lg shadow-indigo-500/20"
-             >
-                {playing ? <FaPause className="w-3 h-3" /> : <FaPlay className="w-3 h-3 translate-x-0.5" />}
-             </button>
-             <button 
-               onClick={() => {
-                 const newVal = !bladeMode;
-                 setBladeMode(newVal);
-                 if (newVal) setBladeCutsRemaining(bladeModeLimit || 2);
-               }} 
-               title={bladeMode ? (bladeModeLimit === 0 ? 'Cortando… (∞)' : `Cortando… (${bladeCutsRemaining} restante${bladeCutsRemaining !== 1 ? 's' : ''})`) : 'Blade Tool'}
-               aria-label={bladeMode ? "Desactivar herramienta de corte" : "Activar herramienta de corte"}
-               className={`p-2 rounded-lg transition-colors flex items-center justify-center relative ${bladeMode ? 'bg-red-500 text-white shadow-lg shadow-red-500/40 scale-110' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white'}`}
-             >
-               <span className="text-base leading-none">✂️</span>
-               {bladeMode && bladeModeLimit !== 0 && (
-                 <span className="absolute -top-1.5 -right-1.5 bg-white text-red-600 text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center shadow-md">
-                   {bladeCutsRemaining}
-                 </span>
-               )}
-               {bladeMode && bladeModeLimit === 0 && (
-                 <span className="absolute -top-1.5 -right-1.5 bg-white text-red-600 text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center shadow-md">
-                   ∞
-                 </span>
-               )}
-             </button>
-             <button
-               onClick={() => setSnappingActive(!snappingActive)}
-               title={snappingActive ? 'Snapping Activo (10px)' : 'Snapping Desactivado'}
-               aria-label={snappingActive ? "Desactivar auto-ajuste" : "Activar auto-ajuste"}
-               className={`p-2 rounded-lg transition-colors flex items-center justify-center ${snappingActive ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'}`}
-             >
-               <Magnet className="w-3.5 h-3.5" />
-             </button>
-          </span>
-          {showTips && (
-            <div className="flex items-center gap-2 min-h-[20px]">
-              <div className="p-1 rounded-md bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
-                <Lightbulb className="w-3 h-3 text-amber-400" />
-              </div>
-              <AnimatePresence mode="wait">
-                <motion.span
-                  key={currentTip}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.3 }}
-                  className="text-zinc-500 text-xs leading-snug cursor-pointer hover:text-zinc-400 transition-colors"
-                  onClick={() => setCurrentTip(prev => (prev + 1) % TIPS_COUNT)}
-                  title={`Tip ${currentTip + 1}/${TIPS_COUNT}`}
-                >
-                  <span className="text-amber-400/70 font-semibold text-[10px] mr-1.5">{currentTip + 1}/{TIPS_COUNT}</span>
-                  {t(`tip_${currentTip + 1}`)}
-                </motion.span>
-              </AnimatePresence>
-            </div>
+      {/* Toolbar: fixed-height row; the help box has its own fixed slot so tips never shift the buttons */}
+      <div className="@container shrink-0 group-data-[inspector-hidden=true]/panel:mr-12">
+      <div className="flex min-h-[52px] items-center gap-1.5 rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-1.5">
+        <button
+          onClick={() => setPlaying(!playing)}
+          aria-label={playing ? "Pausar reproducción" : "Iniciar reproducción"}
+          title={playing ? "Pausar" : "Reproducir"}
+          className="flex h-10 w-12 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white shadow-lg shadow-blue-600/20 transition-colors hover:bg-blue-500"
+        >
+          {playing ? <FaPause className="h-3.5 w-3.5" /> : <FaPlay className="h-3.5 w-3.5 translate-x-0.5" />}
+        </button>
+
+        <button
+          onClick={() => {
+            const newVal = !bladeMode;
+            setBladeMode(newVal);
+            if (newVal) setBladeCutsRemaining(bladeModeLimit || 2);
+          }}
+          title={bladeMode ? (bladeModeLimit === 0 ? 'Cortando… (∞)' : `Cortando… (${bladeCutsRemaining} restante${bladeCutsRemaining !== 1 ? 's' : ''})`) : t('tool_cut')}
+          aria-label={bladeMode ? "Desactivar herramienta de corte" : "Activar herramienta de corte"}
+          className={`relative flex h-10 shrink-0 items-center gap-2 rounded-lg border px-2.5 @[620px]:px-3 text-xs font-medium transition-colors ${
+            bladeMode
+              ? 'border-red-400/60 bg-red-500 text-white shadow-lg shadow-red-500/30'
+              : 'border-zinc-700/60 bg-zinc-800/60 text-zinc-300 hover:bg-zinc-700/70 hover:text-white'
+          }`}
+        >
+          <Scissors className="h-4 w-4" />
+          <span className="hidden @[620px]:inline">{t('tool_cut')}</span>
+          {bladeMode && (
+            <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-white text-[9px] font-bold text-red-600 shadow-md">
+              {bladeModeLimit === 0 ? '∞' : bladeCutsRemaining}
+            </span>
           )}
-        </div>
-        <div className="flex items-center gap-3 mr-12">
-          <span className="text-zinc-500 text-xs">{t('zoom')} ({timelineZoom.toFixed(1)}x)</span>
-          <div className="w-24">
+        </button>
+
+        <button
+          onClick={() => setSnappingActive(!snappingActive)}
+          title={snappingActive ? 'Imán activo: los clips se pegan entre sí y al cabezal (10px)' : 'Imán desactivado'}
+          aria-label={snappingActive ? "Desactivar auto-ajuste" : "Activar auto-ajuste"}
+          className={`flex h-10 shrink-0 items-center gap-2 rounded-lg border px-2.5 @[620px]:px-3 text-xs font-medium transition-colors ${
+            snappingActive
+              ? 'border-indigo-500/40 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25'
+              : 'border-zinc-700/60 bg-zinc-800/60 text-zinc-400 hover:bg-zinc-700/70 hover:text-white'
+          }`}
+        >
+          <Magnet className="h-4 w-4" />
+          <span className="hidden @[620px]:inline">{t('tool_snap')}</span>
+        </button>
+
+        {showTips ? (
+          <button
+            type="button"
+            onClick={() => setCurrentTip(prev => (prev + 1) % TIPS_COUNT)}
+            title="Siguiente consejo"
+            className="group hidden @[430px]:grid min-w-0 flex-1 self-stretch items-center rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-2.5 py-1.5 text-left text-[11px] leading-snug transition-colors hover:bg-amber-500/10"
+          >
+            {/* Every tip is stacked invisibly in the same cell, so the box always has the size of the
+                longest one: tips are read in full and switching never resizes anything. */}
+            {Array.from({ length: TIPS_COUNT }, (_, i) => (
+              <span key={i} aria-hidden className="invisible [grid-area:1/1]">
+                <Lightbulb className="mr-1 inline h-3 w-3 align-[-2px]" />
+                <span className="mr-1 font-semibold">11/11</span>
+                {t(`tip_${i + 1}`)}
+              </span>
+            ))}
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={currentTip}
+                initial={{ opacity: 0, y: 3 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -3 }}
+                transition={{ duration: 0.2 }}
+                className="[grid-area:1/1] text-zinc-400 group-hover:text-zinc-300"
+              >
+                <Lightbulb className="mr-1 inline h-3 w-3 align-[-2px] text-amber-400" />
+                <span className="mr-1 font-semibold tabular-nums text-amber-400/80">{currentTip + 1}/{TIPS_COUNT}</span>
+                {t(`tip_${currentTip + 1}`)}
+              </motion.span>
+            </AnimatePresence>
+          </button>
+        ) : null}
+        <div className={showTips ? "flex-1 @[430px]:hidden" : "flex-1"} />
+
+        <div className="flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-zinc-700/60 bg-zinc-800/40 pl-2 @[720px]:pl-3 pr-2">
+          <span className="hidden @[720px]:inline text-[11px] font-medium text-zinc-400">{t('zoom')}</span>
+          <button
+            onClick={() => setTimelineZoom(Math.max(minZoom, timelineZoom / 1.5))}
+            aria-label={t('zoom_out')}
+            title={t('zoom_out')}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-white"
+          >
+            <Minus className="h-3.5 w-3.5" />
+          </button>
+          <div className="w-16 @[620px]:w-24">
             {(() => {
               let sliderValue = 1.0;
               if (timelineZoom <= 1.0) {
@@ -792,7 +768,19 @@ function Timeline() {
               );
             })()}
           </div>
+          <button
+            onClick={() => setTimelineZoom(Math.min(maxZoom, timelineZoom * 1.5))}
+            aria-label={t('zoom_in')}
+            title={t('zoom_in')}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-white"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+          <span className="w-10 text-right text-[11px] font-semibold tabular-nums text-zinc-300">
+            {timelineZoom < 10 ? timelineZoom.toFixed(1) : timelineZoom.toFixed(0)}x
+          </span>
         </div>
+      </div>
       </div>
 
       {/* Timeline Rail */}
@@ -1014,11 +1002,14 @@ function Timeline() {
                         >
                           <div className="absolute inset-x-0 top-0 h-[18px] bg-black/80 pointer-events-none" />
                           <div className="absolute inset-x-0 bottom-0 h-[18px] bg-black/80 pointer-events-none" />
-                          <TimelineFilmstrip
+                          <FilmstripTiles
+                            source={filmstripSource}
                             clip={clip}
+                            clipStartPx={clipStartPx}
                             clipWidthPx={clipWidthPx}
-                            thumbnails={thumbnails}
-                            isGeneratingThumbnails={isGeneratingThumbnails}
+                            pixelsPerSecond={pixelsPerSecond}
+                            viewStartPx={viewStartPx}
+                            viewEndPx={viewEndPx}
                           />
 
                           {/* Clip Info */}

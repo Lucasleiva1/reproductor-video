@@ -1,6 +1,8 @@
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import { useTimeline } from "@/hooks/useTimeline";
+import { applyColorPreview } from "@/utils/colorPreview";
+import { ColorOverlays, ColorSliders } from "./ImageAdjust";
 import {
   findActiveClip,
   getContentDuration,
@@ -107,6 +109,7 @@ export default function Canvas() {
   const playerRef = useRef<any>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const imageControlsRef = useRef<HTMLDivElement>(null);
+  const imageSidePanelRef = useRef<HTMLElement>(null);
   const screenClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const screenshotStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const screenshotSoundRef = useRef<HTMLAudioElement | null>(null);
@@ -222,6 +225,7 @@ export default function Canvas() {
     const closeImageControlsOnOutsidePress = (event: PointerEvent) => {
       const target = event.target as Node | null;
       if (target && imageControlsRef.current?.contains(target)) return;
+      if (target && imageSidePanelRef.current?.contains(target)) return;
       setShowImageControls(false);
     };
 
@@ -686,6 +690,10 @@ export default function Canvas() {
   }, []);
 
   const isPlayerSurface = isFullscreen || isCompactWindow || appMode === "player";
+  // In the player (not the small floating window) the image controls dock at the side like CINE WANA,
+  // shrinking the video instead of floating over it.
+  const imageAsSidePanel = isPlayerSurface && !isCompactWindow && !isWebCompactWindow;
+  const imageSidePanelOpen = imageAsSidePanel && showImageControls;
 
   useEffect(() => {
     if (!isPlayerSurface) return;
@@ -895,31 +903,9 @@ export default function Canvas() {
   const effectiveTranslateY = isFixedMode ? 0 : translateY;
   const effectiveCanvasScale = isFixedMode ? 1 : canvasScale;
   const previewColorEnabled = colorCorrection.enabled && !showOriginalPreview;
-  const previewFilter = previewColorEnabled
-    ? [
-        `brightness(${1 + colorCorrection.brightness / 100})`,
-        `contrast(${1 + colorCorrection.contrast / 100})`,
-        `saturate(${1 + colorCorrection.saturation / 100})`,
-      ].join(" ")
-    : undefined;
-  const shadowLiftOpacity = previewColorEnabled && colorCorrection.shadows > 0
-    ? Math.min(colorCorrection.shadows / 120, 0.42)
-    : 0;
-  const shadowCrushOpacity = previewColorEnabled && colorCorrection.shadows < 0
-    ? Math.min(Math.abs(colorCorrection.shadows) / 140, 0.36)
-    : 0;
-  const highlightLiftOpacity = previewColorEnabled && colorCorrection.highlights > 0
-    ? Math.min(colorCorrection.highlights / 155, 0.34)
-    : 0;
-  const highlightRecoverOpacity = previewColorEnabled && colorCorrection.highlights < 0
-    ? Math.min(Math.abs(colorCorrection.highlights) / 180, 0.28)
-    : 0;
-  const temperatureOpacity = previewColorEnabled
-    ? Math.min(Math.abs(colorCorrection.temperature) / 120, 0.36)
-    : 0;
-  const temperatureColor = colorCorrection.temperature >= 0
-    ? "rgba(255, 170, 85, 1)"
-    : "rgba(95, 150, 255, 1)";
+  useLayoutEffect(() => {
+    applyColorPreview(canvasContainerRef.current, colorCorrection, !showOriginalPreview);
+  }, [colorCorrection, showOriginalPreview]);
   const showScreenshotStatus = useCallback((status: ScreenshotStatus) => {
     setScreenshotStatus(status);
     if (screenshotStatusTimerRef.current) clearTimeout(screenshotStatusTimerRef.current);
@@ -1059,10 +1045,11 @@ export default function Canvas() {
     });
     void processScreenshotQueue();
   }, [processScreenshotQueue, showScreenshotStatus]);
-  const applyColorCorrection = (updates: Partial<typeof colorCorrection>) => {
+  const applyColorCorrection = useCallback((updates: Partial<typeof colorCorrection>) => {
     setShowOriginalPreview(false);
     setColorCorrection({ enabled: true, ...updates });
-  };
+  }, [setShowOriginalPreview, setColorCorrection]);
+  const getColorPreviewTarget = useCallback(() => canvasContainerRef.current, []);
   const applyColorPreset = (values: typeof colorCorrection) => {
     setShowOriginalPreview(false);
     setColorCorrection(values);
@@ -1173,6 +1160,143 @@ export default function Canvas() {
     enterFullscreenNative().catch(() => {});
   };
 
+  // Image controls, shared by the editor popover and the side panel used in player mode
+  const imageControlsBody = (
+    <>
+                          {!imageAsSidePanel && (
+                            <div className="mb-3">
+                              <div className="text-sm font-semibold">Mejorar imagen</div>
+                              <div className="text-[11px] text-white/50">Los ajustes se exportan con el video</div>
+                            </div>
+                          )}
+
+                          <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-blue-300/20 bg-blue-300/10 px-3 py-2.5">
+                            <div>
+                              <div className="text-xs font-semibold text-blue-100">Modo capturas</div>
+                              <div className="text-[10px] text-blue-100/55">Deja fija la camara arriba del reproductor.</div>
+                            </div>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={screenshotModeEnabled}
+                              onClick={() => setScreenshotModeEnabled((enabled) => !enabled)}
+                              className={`relative h-5 w-9 shrink-0 rounded-full border transition-colors ${
+                                screenshotModeEnabled
+                                  ? "border-blue-300/50 bg-blue-500"
+                                  : "border-white/15 bg-white/10"
+                              }`}
+                            >
+                              <span
+                                className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                                  screenshotModeEnabled ? "translate-x-4" : "translate-x-0"
+                                }`}
+                              />
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-4 gap-1.5 mb-4">
+                            {colorPresets.map((preset) => (
+                              <button
+                                key={preset.label}
+                                onClick={() => applyColorPreset(preset.values)}
+                                className="rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-white/75 hover:bg-white/10 hover:text-white transition-colors"
+                              >
+                                {preset.label}
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="mb-4 grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={scanVideoImage}
+                              disabled={!videoUrl || !!imageScanProgress}
+                              className="flex items-center justify-center rounded-md border border-blue-300/25 bg-blue-300/10 px-2 py-2 text-[11px] font-semibold text-blue-200 transition-colors hover:bg-blue-300/15 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {imageScanProgress
+                                ? imageScanProgress.phase === "computing"
+                                  ? "Finalizando"
+                                  : `Escaneando ${imageScanPercent}%`
+                                : "Escanear video"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowOriginalPreview(!showOriginalPreview)}
+                              disabled={!colorCorrection.enabled}
+                              className={`flex items-center justify-center rounded-md border px-2 py-2 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                showOriginalPreview
+                                  ? "border-amber-300/35 bg-amber-300/15 text-amber-100 hover:bg-amber-300/20"
+                                  : "border-white/15 bg-white/5 text-white/75 hover:bg-white/10 hover:text-white"
+                              }`}
+                            >
+                              {showOriginalPreview ? "Ver con efecto" : "Ver original"}
+                            </button>
+                          </div>
+                          {imageScanProgress && (
+                            <div className="mb-4 space-y-1.5 rounded-md border border-blue-300/15 bg-blue-300/5 p-2.5">
+                              <div className="h-2 overflow-hidden rounded-full bg-blue-950/70">
+                                <div
+                                  className="h-full rounded-full bg-blue-400 transition-[width] duration-150"
+                                  style={{ width: `${imageScanPercent}%` }}
+                                />
+                              </div>
+                              <div className="flex items-center justify-between text-[10px] text-blue-100/70">
+                                <span>{imageScanProgress.message}</span>
+                                <span className="font-mono">{imageScanProgress.current}/{imageScanProgress.total}</span>
+                              </div>
+                            </div>
+                          )}
+                          {imageAnalysis && !imageScanProgress && (
+                            <div className="mb-4 space-y-2 rounded-md border border-emerald-300/20 bg-emerald-300/5 p-2.5">
+                              <div className="text-[11px] font-semibold text-emerald-200">Analisis listo - video sin modificar</div>
+                              <div className="grid grid-cols-3 gap-2 text-center text-[10px] text-white/55">
+                                <div><div className="font-mono text-white/85">{imageAnalysis.shadowsPercent}%</div>Negros</div>
+                                <div><div className="font-mono text-white/85">{imageAnalysis.highlightsPercent}%</div>Luces</div>
+                                <div><div className="font-mono text-white/85">{imageAnalysis.averageLight}%</div>Media</div>
+                              </div>
+                              <div className="text-[10px] text-white/45">{imageAnalysis.sampledFrames} escenas revisadas.</div>
+                              <button
+                                type="button"
+                                onClick={() => applyColorCorrection(imageAnalysis.suggestedCorrection)}
+                                className="w-full rounded-md border border-emerald-300/30 bg-emerald-300/10 px-2 py-2 text-[11px] font-semibold text-emerald-100 transition-colors hover:bg-emerald-300/20"
+                              >
+                                Aplicar ajuste sugerido
+                              </button>
+                              <div className="grid grid-cols-3 gap-x-2 gap-y-1 text-center text-[9px] text-white/45">
+                                {([
+                                  ["Brillo", "brightness"],
+                                  ["Luces", "highlights"],
+                                  ["Sombras", "shadows"],
+                                  ["Contraste", "contrast"],
+                                  ["Saturacion", "saturation"],
+                                  ["Temp.", "temperature"],
+                                ] as const).map(([label, key]) => (
+                                  <div key={key}>
+                                    <div className="font-mono text-white/75">
+                                      {imageAnalysis.suggestedCorrection[key] > 0 ? "+" : ""}{imageAnalysis.suggestedCorrection[key]}
+                                    </div>
+                                    {label}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <ColorSliders
+                            value={colorCorrection}
+                            getPreviewTarget={getColorPreviewTarget}
+                            onCommit={applyColorCorrection}
+                          />
+
+                          <button
+                            onClick={resetColorCorrection}
+                            className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+                          >
+                            Reset imagen
+                          </button>
+    </>
+  );
+
   return (
     <div 
       ref={canvasContainerRef}
@@ -1186,9 +1310,40 @@ export default function Canvas() {
       onDrop={handleDrop}
       onWheel={handleWheel}
       onMouseMove={isPlayerSurface ? resetIdleTimer : undefined}
-      style={{ cursor: isPlayerSurface && fsIdle && !isWebCompactWindow ? 'none' : undefined }}
+      style={{
+        cursor: isPlayerSurface && fsIdle && !isWebCompactWindow ? 'none' : undefined,
+        ["--image-panel-width" as string]: "min(320px, 42vw)",
+      }}
     >
-      <div className="w-full h-full relative" style={{ containerType: 'size' }}>
+      {imageSidePanelOpen && (
+        <aside
+          ref={imageSidePanelRef}
+          className="absolute top-0 right-0 bottom-0 z-[120] overflow-y-auto border-l border-white/10 bg-[#090909]/95 p-5 text-white shadow-[-18px_0_60px_rgba(0,0,0,0.7)] backdrop-blur-xl"
+          style={{ width: "var(--image-panel-width)", cursor: "auto" }}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">Imagen</div>
+              <div className="text-[11px] text-white/50">Los ajustes se exportan con el video</div>
+            </div>
+            <button
+              onClick={() => setShowImageControls(false)}
+              className="rounded-md p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+              title="Cerrar"
+              aria-label="Cerrar panel de imagen"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {imageControlsBody}
+        </aside>
+      )}
+      <div
+        className="h-full relative"
+        style={{ containerType: 'size', width: imageSidePanelOpen ? "calc(100% - var(--image-panel-width))" : "100%" }}
+      >
         <div className="absolute inset-0 flex items-center justify-center">
           {videoUrl ? (
           <div 
@@ -1242,64 +1397,11 @@ export default function Canvas() {
                           style={{
                             objectFit: 'contain',
                             opacity: isTimelineGap ? 0 : 1,
-                            filter: previewFilter,
+                            filter: "var(--cc-filter, none)",
                           }}
                         />
                       </React.Suspense>
-                      {previewColorEnabled && (shadowLiftOpacity > 0 || shadowCrushOpacity > 0 || highlightLiftOpacity > 0 || highlightRecoverOpacity > 0 || temperatureOpacity > 0) && (
-                        <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                          {shadowLiftOpacity > 0 && (
-                            <div
-                              className="absolute inset-0"
-                              style={{
-                                background: "rgba(255,255,255,1)",
-                                mixBlendMode: "screen",
-                                opacity: shadowLiftOpacity,
-                              }}
-                            />
-                          )}
-                          {shadowCrushOpacity > 0 && (
-                            <div
-                              className="absolute inset-0"
-                              style={{
-                                background: "rgba(0,0,0,1)",
-                                mixBlendMode: "multiply",
-                                opacity: shadowCrushOpacity,
-                              }}
-                            />
-                          )}
-                          {highlightLiftOpacity > 0 && (
-                            <div
-                              className="absolute inset-0"
-                              style={{
-                                background: "rgba(255,255,255,1)",
-                                mixBlendMode: "soft-light",
-                                opacity: highlightLiftOpacity,
-                              }}
-                            />
-                          )}
-                          {highlightRecoverOpacity > 0 && (
-                            <div
-                              className="absolute inset-0"
-                              style={{
-                                background: "rgba(0,0,0,1)",
-                                mixBlendMode: "soft-light",
-                                opacity: highlightRecoverOpacity,
-                              }}
-                            />
-                          )}
-                          {temperatureOpacity > 0 && (
-                            <div
-                              className="absolute inset-0"
-                              style={{
-                                background: temperatureColor,
-                                mixBlendMode: "soft-light",
-                                opacity: temperatureOpacity,
-                              }}
-                            />
-                          )}
-                        </div>
-                      )}
+                      <ColorOverlays show={previewColorEnabled} />
                     </motion.div>
                   </div>
                 </div>
@@ -1433,64 +1535,11 @@ export default function Canvas() {
                       style={{
                         objectFit: isFixedMode ? 'contain' : 'contain',
                         opacity: isTimelineGap ? 0 : 1,
-                        filter: previewFilter,
+                        filter: "var(--cc-filter, none)",
                       }}
                     />
                   </React.Suspense>
-                  {previewColorEnabled && (shadowLiftOpacity > 0 || shadowCrushOpacity > 0 || highlightLiftOpacity > 0 || highlightRecoverOpacity > 0 || temperatureOpacity > 0) && (
-                    <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                      {shadowLiftOpacity > 0 && (
-                        <div
-                          className="absolute inset-0"
-                          style={{
-                            background: "rgba(255,255,255,1)",
-                            mixBlendMode: "screen",
-                            opacity: shadowLiftOpacity,
-                          }}
-                        />
-                      )}
-                      {shadowCrushOpacity > 0 && (
-                        <div
-                          className="absolute inset-0"
-                          style={{
-                            background: "rgba(0,0,0,1)",
-                            mixBlendMode: "multiply",
-                            opacity: shadowCrushOpacity,
-                          }}
-                        />
-                      )}
-                      {highlightLiftOpacity > 0 && (
-                        <div
-                          className="absolute inset-0"
-                          style={{
-                            background: "rgba(255,255,255,1)",
-                            mixBlendMode: "soft-light",
-                            opacity: highlightLiftOpacity,
-                          }}
-                        />
-                      )}
-                      {highlightRecoverOpacity > 0 && (
-                        <div
-                          className="absolute inset-0"
-                          style={{
-                            background: "rgba(0,0,0,1)",
-                            mixBlendMode: "soft-light",
-                            opacity: highlightRecoverOpacity,
-                          }}
-                        />
-                      )}
-                      {temperatureOpacity > 0 && (
-                        <div
-                          className="absolute inset-0"
-                          style={{
-                            background: temperatureColor,
-                            mixBlendMode: "soft-light",
-                            opacity: temperatureOpacity,
-                          }}
-                        />
-                      )}
-                    </div>
-                  )}
+                  <ColorOverlays show={previewColorEnabled} />
                 </motion.div>
               </motion.div>
             )}
@@ -1520,7 +1569,7 @@ export default function Canvas() {
                     aria-label="Capturar pantalla"
                   >
                     <Camera className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline text-xs font-semibold">Captura</span>
+                    <span className="hidden @[720px]:inline text-xs font-semibold">Captura</span>
                   </button>
                   {screenshotCount > 0 && (
                     <div className="h-7 min-w-7 rounded-full border border-white/10 bg-black/55 px-2.5 text-[11px] font-mono font-semibold text-white/85 shadow-xl backdrop-blur-md flex items-center justify-center">
@@ -1682,7 +1731,7 @@ export default function Canvas() {
                   initial={{ opacity: 0, y: 18 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 18 }}
-                  className={`absolute bottom-0 left-0 right-0 z-50 pointer-events-none ${isFullscreen ? 'px-6 sm:px-10 pb-7 pt-24' : 'px-4 sm:px-7 pb-5 pt-20'} bg-gradient-to-t from-black/80 via-black/35 to-transparent`}
+                  className={`@container absolute bottom-0 left-0 right-0 z-50 pointer-events-none ${isFullscreen ? 'px-6 sm:px-10 pb-7 pt-24' : 'px-4 sm:px-7 pb-5 pt-20'} bg-gradient-to-t from-black/80 via-black/35 to-transparent`}
                 >
                   <div
                     className="mb-1 w-full pointer-events-auto"
@@ -1728,10 +1777,10 @@ export default function Canvas() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1.5 @[640px]:gap-4">
                     {/* Left Utility Controls */}
                     <div className="justify-self-start flex items-center gap-2 pointer-events-auto min-w-0">
-                      <div className="h-10 flex items-center gap-1.5 bg-black/65 backdrop-blur-md border border-white/10 rounded-lg px-2 group max-w-[150px] sm:max-w-none shadow-xl"
+                      <div className="h-10 hidden @[320px]:flex items-center gap-1.5 bg-black/65 backdrop-blur-md border border-white/10 rounded-lg px-2 group shadow-xl"
                          onClick={(e) => e.stopPropagation()}
                          onDoubleClick={(e) => e.stopPropagation()}
                       >
@@ -1753,7 +1802,7 @@ export default function Canvas() {
                             setVolume(v);
                             if (v > 0 && muted) setMuted(false);
                           }}
-                          className="w-20 sm:w-28"
+                          className="hidden @[520px]:block w-16 @[720px]:w-24"
                         />
                       </div>
 
@@ -1764,7 +1813,7 @@ export default function Canvas() {
                           setPlaying(true);
                         }}
                         onDoubleClick={(e) => e.stopPropagation()}
-                        className="w-10 h-10 rounded-lg bg-black/65 backdrop-blur-md border border-white/10 text-white/70 hover:text-white hover:bg-black/85 flex items-center justify-center transition-all shrink-0 shadow-xl"
+                        className="w-10 h-10 rounded-lg bg-black/65 backdrop-blur-md border border-white/10 text-white/70 hover:text-white hover:bg-black/85 hidden @[430px]:flex items-center justify-center transition-all shrink-0 shadow-xl"
                         title={t('restart')}
                       >
                         <RotateCcw className="w-4 h-4" />
@@ -1776,7 +1825,7 @@ export default function Canvas() {
                           setLoopPlayback((value) => !value);
                         }}
                         onDoubleClick={(e) => e.stopPropagation()}
-                        className={`w-10 h-10 rounded-lg bg-black/65 backdrop-blur-md border text-white/70 hover:text-white hover:bg-black/85 flex items-center justify-center transition-all shrink-0 shadow-xl ${
+                        className={`w-10 h-10 rounded-lg bg-black/65 backdrop-blur-md border text-white/70 hover:text-white hover:bg-black/85 hidden @[430px]:flex items-center justify-center transition-all shrink-0 shadow-xl ${
                           loopPlayback ? 'border-blue-400/60 text-blue-200 shadow-blue-500/20' : 'border-white/10'
                         }`}
                         title={loopPlayback ? "Repeticion activada" : "Repetir video"}
@@ -1786,14 +1835,14 @@ export default function Canvas() {
                     </div>
 
                     {/* Center Transport Controls */}
-                    <div className="justify-self-center h-14 bg-black/70 backdrop-blur-xl border border-white/10 text-white px-5 rounded-full flex items-center gap-5 shadow-2xl pointer-events-auto">
+                    <div className="justify-self-center h-12 @[420px]:h-14 bg-black/70 backdrop-blur-xl border border-white/10 text-white px-2 @[420px]:px-3 @[640px]:px-5 rounded-full flex items-center gap-2 @[420px]:gap-3 @[640px]:gap-5 shadow-2xl pointer-events-auto">
                       <button onClick={() => skipTime(-5)} className="text-white/75 hover:text-blue-300 transition-colors" title="-5 Seconds">
                         <SkipBack className="w-5 h-5" />
                       </button>
                       <button 
                         onClick={() => setPlaying(!playing)} 
                         aria-label={playing ? "Pausar" : "Reproducir"}
-                        className="bg-blue-600 hover:bg-blue-500 text-white w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg hover:shadow-blue-500/50 active:scale-95"
+                        className="bg-blue-600 hover:bg-blue-500 text-white w-10 h-10 @[420px]:w-12 @[420px]:h-12 rounded-full flex items-center justify-center transition-all shadow-lg hover:shadow-blue-500/50 active:scale-95"
                       >
                         {playing ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current translate-x-0.5" />}
                       </button>
@@ -1827,13 +1876,13 @@ export default function Canvas() {
                         toggleCompareMode();
                       }}
                       onDoubleClick={(e) => e.stopPropagation()}
-                      className={`h-10 px-3 rounded-lg bg-black/65 backdrop-blur-md border flex items-center justify-center transition-all shadow-xl text-white/70 hover:text-white hover:bg-black/85 cursor-pointer ${
+                      className={`h-10 px-3 rounded-lg bg-black/65 backdrop-blur-md border hidden @[430px]:flex items-center justify-center transition-all shadow-xl text-white/70 hover:text-white hover:bg-black/85 cursor-pointer ${
                         compareMode ? 'border-blue-400/60 text-blue-200 shadow-blue-500/20' : 'border-white/10'
                       }`}
                       title="Comparar videos"
                     >
-                      <Columns2 className="w-4 h-4 sm:mr-2" />
-                      <span className="hidden sm:inline text-xs font-medium">Comparar</span>
+                      <Columns2 className="w-4 h-4 @[720px]:mr-2" />
+                      <span className="hidden @[720px]:inline text-xs font-medium">Comparar</span>
                     </button>
 
                     <div
@@ -1849,12 +1898,12 @@ export default function Canvas() {
                       }`}
                       title="Mejorar imagen"
                     >
-                      <SlidersHorizontal className="w-4 h-4 sm:mr-2" />
-                      <span className="hidden sm:inline text-xs font-medium">Imagen</span>
+                      <SlidersHorizontal className="w-4 h-4 @[720px]:mr-2" />
+                      <span className="hidden @[720px]:inline text-xs font-medium">Imagen</span>
                     </button>
 
                     <AnimatePresence>
-                      {showImageControls && (
+                      {showImageControls && !imageAsSidePanel && (
                         <motion.div
                           initial={{ opacity: 0, y: 8, scale: imagePanelFit.scale * 0.96 }}
                           animate={{ opacity: 1, y: 0, scale: imagePanelFit.scale }}
@@ -1869,135 +1918,7 @@ export default function Canvas() {
                           style={{ maxHeight: imagePanelFit.maxHeight }}
                         >
                           <div className="p-4">
-                          <div className="mb-3">
-                            <div>
-                              <div className="text-sm font-semibold">Mejorar imagen</div>
-                              <div className="text-[11px] text-white/50">Los ajustes se exportan con el video</div>
-                            </div>
-                          </div>
-
-                          <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-blue-300/20 bg-blue-300/10 px-3 py-2.5">
-                            <div>
-                              <div className="text-xs font-semibold text-blue-100">Modo capturas</div>
-                              <div className="text-[10px] text-blue-100/55">Deja fija la camara arriba del reproductor.</div>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={screenshotModeEnabled}
-                              onClick={() => setScreenshotModeEnabled((enabled) => !enabled)}
-                              className={`relative h-5 w-9 shrink-0 rounded-full border transition-colors ${
-                                screenshotModeEnabled
-                                  ? "border-blue-300/50 bg-blue-500"
-                                  : "border-white/15 bg-white/10"
-                              }`}
-                            >
-                              <span
-                                className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                                  screenshotModeEnabled ? "translate-x-4" : "translate-x-0"
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          <div className="grid grid-cols-4 gap-1.5 mb-4">
-                            {colorPresets.map((preset) => (
-                              <button
-                                key={preset.label}
-                                onClick={() => applyColorPreset(preset.values)}
-                                className="rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-white/75 hover:bg-white/10 hover:text-white transition-colors"
-                              >
-                                {preset.label}
-                              </button>
-                            ))}
-                          </div>
-
-                          <div className="mb-4 grid grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              onClick={scanVideoImage}
-                              disabled={!videoUrl || !!imageScanProgress}
-                              className="flex items-center justify-center rounded-md border border-blue-300/25 bg-blue-300/10 px-2 py-2 text-[11px] font-semibold text-blue-200 transition-colors hover:bg-blue-300/15 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              {imageScanProgress
-                                ? imageScanProgress.phase === "computing"
-                                  ? "Finalizando"
-                                  : `Escaneando ${imageScanPercent}%`
-                                : "Escanear video"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setShowOriginalPreview(!showOriginalPreview)}
-                              disabled={!colorCorrection.enabled}
-                              className={`flex items-center justify-center rounded-md border px-2 py-2 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                                showOriginalPreview
-                                  ? "border-amber-300/35 bg-amber-300/15 text-amber-100 hover:bg-amber-300/20"
-                                  : "border-white/15 bg-white/5 text-white/75 hover:bg-white/10 hover:text-white"
-                              }`}
-                            >
-                              {showOriginalPreview ? "Ver con efecto" : "Ver original"}
-                            </button>
-                          </div>
-                          {imageScanProgress && (
-                            <div className="mb-4 space-y-1.5 rounded-md border border-blue-300/15 bg-blue-300/5 p-2.5">
-                              <div className="h-2 overflow-hidden rounded-full bg-blue-950/70">
-                                <div
-                                  className="h-full rounded-full bg-blue-400 transition-[width] duration-150"
-                                  style={{ width: `${imageScanPercent}%` }}
-                                />
-                              </div>
-                              <div className="flex items-center justify-between text-[10px] text-blue-100/70">
-                                <span>{imageScanProgress.message}</span>
-                                <span className="font-mono">{imageScanProgress.current}/{imageScanProgress.total}</span>
-                              </div>
-                            </div>
-                          )}
-                          {imageAnalysis && !imageScanProgress && (
-                            <div className="mb-4 space-y-2 rounded-md border border-emerald-300/20 bg-emerald-300/5 p-2.5">
-                              <div className="text-[11px] font-semibold text-emerald-200">Analisis listo - video sin modificar</div>
-                              <div className="grid grid-cols-3 gap-2 text-center text-[10px] text-white/55">
-                                <div><div className="font-mono text-white/85">{imageAnalysis.shadowsPercent}%</div>Negros</div>
-                                <div><div className="font-mono text-white/85">{imageAnalysis.highlightsPercent}%</div>Luces</div>
-                                <div><div className="font-mono text-white/85">{imageAnalysis.averageLight}%</div>Media</div>
-                              </div>
-                              <div className="text-[10px] text-white/45">{imageAnalysis.sampledFrames} escenas revisadas para ajustes manuales.</div>
-                            </div>
-                          )}
-
-                          {[
-                            ["Brillo", "brightness", -50, 50],
-                            ["Luces", "highlights", -50, 50],
-                            ["Sombras", "shadows", -50, 50],
-                            ["Contraste", "contrast", -50, 50],
-                            ["Saturacion", "saturation", -50, 50],
-                            ["Temperatura", "temperature", -50, 50],
-                          ].map(([label, key, min, max]) => {
-                            const value = colorCorrection[key as keyof typeof colorCorrection] as number;
-                            return (
-                              <label key={key} className="block mb-3">
-                                <div className="flex items-center justify-between text-xs mb-1.5">
-                                  <span className="text-white/75">{label}</span>
-                                  <span className="font-mono text-white/50">{value.toFixed(0)}</span>
-                                </div>
-                                <input
-                                  type="range"
-                                  min={min as number}
-                                  max={max as number}
-                                  step={1}
-                                  value={value}
-                                  onChange={(e) => applyColorCorrection({ [key as string]: Number(e.target.value) })}
-                                  className="w-full accent-blue-500"
-                                />
-                              </label>
-                            );
-                          })}
-
-                          <button
-                            onClick={resetColorCorrection}
-                            className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors"
-                          >
-                            Reset imagen
-                          </button>
+                          {imageControlsBody}
                           </div>
                         </div>
                         </motion.div>
@@ -2022,11 +1943,11 @@ export default function Canvas() {
                         }
                       }}
                       onDoubleClick={(e) => e.stopPropagation()}
-                      className="h-10 px-3 sm:px-4 rounded-lg bg-black/65 backdrop-blur-md border border-white/10 text-white/70 hover:text-white hover:bg-black/85 flex items-center justify-center transition-all shrink-0 shadow-xl"
+                      className="h-10 px-3 @[860px]:px-4 rounded-lg bg-black/65 backdrop-blur-md border border-white/10 text-white/70 hover:text-white hover:bg-black/85 flex items-center justify-center transition-all shrink-0 shadow-xl"
                       title={appMode === "player" ? 'Editar' : 'Pantalla Completa'}
                     >
-                      {appMode === "player" ? <Settings2 className="w-4 h-4 sm:mr-2" /> : <Maximize className="w-4 h-4 sm:mr-2" />}
-                      <span className="hidden md:inline text-xs font-medium">
+                      {appMode === "player" ? <Settings2 className="w-4 h-4 @[860px]:mr-2" /> : <Maximize className="w-4 h-4 @[860px]:mr-2" />}
+                      <span className="hidden @[860px]:inline text-xs font-medium">
                         {appMode === "player" ? 'Editar' : 'Pantalla Completa'}
                       </span>
                     </button>

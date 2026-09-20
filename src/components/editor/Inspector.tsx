@@ -1,8 +1,9 @@
 
 import { useTimeline, RESOLUTIONS } from "@/hooks/useTimeline";
+import { useShallow } from "zustand/react/shallow";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import { RotateCcw, ChevronRight, ChevronLeft, Settings, Sun, Moon, Monitor, Eye, Globe, Ratio, Keyboard, Palette, BookOpen, Undo2, Redo2, Play, SkipBack, SkipForward, ZoomIn, Scissors, Lightbulb } from "lucide-react";
+import { RotateCcw, ChevronRight, Settings, Sun, Moon, Monitor, Eye, Globe, Ratio, Keyboard, Palette, BookOpen, Undo2, Redo2, Play, SkipBack, SkipForward, ZoomIn, Scissors, Lightbulb } from "lucide-react";
 import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -58,6 +59,7 @@ const ToggleSwitch = ({ checked, onChange }: { checked: boolean; onChange: (v: b
 
 export default function Inspector({ onClose }: { onClose?: () => void }) {
   const { t, i18n } = useTranslation();
+  // Subscribe only to what this component uses (not to every playback frame)
   const { 
     zoom, posX, posY, setZoom, setPosX, setPosY, resetTransform, 
     resolution, setResolution,
@@ -67,26 +69,12 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
     bladeModeLimit, setBladeModeLimit,
     timelineTimeMode, setTimelineTimeMode,
     showTips, setShowTips,
-  } = useTimeline();
+  } = useTimeline(useShallow((s) => ({ zoom: s.zoom, posX: s.posX, posY: s.posY, setZoom: s.setZoom, setPosX: s.setPosX, setPosY: s.setPosY, resetTransform: s.resetTransform, resolution: s.resolution, setResolution: s.setResolution, headerShowLang: s.headerShowLang, headerShowRes: s.headerShowRes, headerShowShortcuts: s.headerShowShortcuts, headerShowTheme: s.headerShowTheme, headerShowTutorial: s.headerShowTutorial, setHeaderShowLang: s.setHeaderShowLang, setHeaderShowRes: s.setHeaderShowRes, setHeaderShowShortcuts: s.setHeaderShowShortcuts, setHeaderShowTheme: s.setHeaderShowTheme, setHeaderShowTutorial: s.setHeaderShowTutorial, undo: s.undo, redo: s.redo, past: s.past, future: s.future, saveHistory: s.saveHistory, bladeModeLimit: s.bladeModeLimit, setBladeModeLimit: s.setBladeModeLimit, timelineTimeMode: s.timelineTimeMode, setTimelineTimeMode: s.setTimelineTimeMode, showTips: s.showTips, setShowTips: s.setShowTips })));
   const { theme, setTheme } = useTheme();
   const [showSettings, setShowSettings] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [popoverPos, setPopoverPos] = useState({ top: 0, left: 0 });
-
-  const [devLinkIndex, setDevLinkIndex] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setDevLinkIndex((prev) => (prev + 1) % 2);
-    }, 60000); // 1 minute
-    return () => clearInterval(interval);
-  }, []);
-
-  const devLinks = [
-    { text: "POWERED BY FLOWGRAVITY", url: "https://my-portfolio-tau-mauve.vercel.app/" },
-    { text: "BAJO FLOW", url: "https://bajo-flow.netlify.app/" }
-  ];
 
   // Calculate popover position when opening
   useEffect(() => {
@@ -444,50 +432,6 @@ export default function Inspector({ onClose }: { onClose?: () => void }) {
 
     </div>
 
-    {/* Developer Attribution */}
-    <div className="mt-8 pt-4 border-t flex flex-col items-center gap-3 pb-2">
-      <div className="flex items-center gap-3 group/dev">
-        {/* Manual Toggle Arrow (Left side) */}
-        <button 
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setDevLinkIndex((prev) => (prev + 1) % 2);
-          }}
-          className="w-8 h-8 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center text-white/50 hover:text-white hover:bg-zinc-800 transition-all shadow-xl"
-          title="Change brand"
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-
-        <div className="relative group">
-          <AnimatePresence mode="wait">
-            <motion.a 
-              key={devLinkIndex}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 10 }}
-              transition={{ duration: 0.3, ease: "easeOut" }}
-              href={devLinks[devLinkIndex].url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-5 py-2.5 border border-border/50 rounded-full flex items-center justify-center gap-3 hover:bg-muted/50 transition-all group/link cursor-pointer shadow-sm hover:shadow-md bg-background/50"
-              title="Visit Portfolio"
-            >
-              <Globe className="w-4 h-4 text-blue-500 group-hover/link:rotate-12 transition-transform" />
-              <div className="flex flex-col min-w-[100px]">
-                <span className="text-[9px] text-muted-foreground font-semibold uppercase leading-none tracking-[0.1em] mb-1">
-                  {devLinkIndex === 0 ? "Powered By" : "Editor de video"}
-                </span>
-                <span className="text-xs font-black text-foreground leading-none tracking-wider">
-                  {devLinkIndex === 0 ? "FLOWGRAVITY" : "BAJO FLOW"}
-                </span>
-              </div>
-            </motion.a>
-          </AnimatePresence>
-        </div>
-      </div>
-    </div>
     </>
   );
 }

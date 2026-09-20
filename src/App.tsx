@@ -5,6 +5,7 @@ import Inspector from "@/components/editor/Inspector";
 import ExportModal from "@/components/ui/ExportModal";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useTimeline, RESOLUTIONS } from "@/hooks/useTimeline";
+import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { Upload, LayoutPanelLeft, Keyboard, BookOpen } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -55,7 +56,8 @@ export default function Home() {
     try { localStorage.setItem("editorPanelHeight", String(drag.height)); } catch {}
   };
   const { t, i18n } = useTranslation();
-  const { appMode, setVideoFile, loadVideoByPath, resolution, setResolution, duration, setPlaying, setCurrentTime, canvasScale, setCanvasScale, isFullscreen, headerShowLang, headerShowRes, headerShowShortcuts, headerShowTheme, headerShowTutorial } = useTimeline();
+  // Subscribe only to what this component uses (not to every playback frame)
+  const { appMode, setVideoFile, loadVideoByPath, resolution, setResolution, duration, setPlaying, setCurrentTime, canvasScale, setCanvasScale, isFullscreen, headerShowLang, headerShowRes, headerShowShortcuts, headerShowTheme, headerShowTutorial } = useTimeline(useShallow((s) => ({ appMode: s.appMode, setVideoFile: s.setVideoFile, loadVideoByPath: s.loadVideoByPath, resolution: s.resolution, setResolution: s.setResolution, duration: s.duration, setPlaying: s.setPlaying, setCurrentTime: s.setCurrentTime, canvasScale: s.canvasScale, setCanvasScale: s.setCanvasScale, isFullscreen: s.isFullscreen, headerShowLang: s.headerShowLang, headerShowRes: s.headerShowRes, headerShowShortcuts: s.headerShowShortcuts, headerShowTheme: s.headerShowTheme, headerShowTutorial: s.headerShowTutorial })));
   
   // --- Tauri File Open Handler ---
   useEffect(() => {
@@ -171,18 +173,24 @@ export default function Home() {
         </div>
         
         <div className="flex items-center gap-4">
-          <div className="relative overflow-hidden group">
-            <input
-              type="file"
-              accept="video/*"
-              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
-              onChange={handleFileUpload}
-            />
-            <Button variant="outline" className="gap-2 bg-muted/50 transition-colors group-hover:bg-muted group-hover:text-foreground">
-              <Upload className="w-4 h-4" />
-              {t('change_video')}
-            </Button>
-          </div>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger delay={500} render={<div className="relative overflow-hidden group" />}>
+                <input
+                  type="file"
+                  accept="video/*"
+                  title=""
+                  aria-label={t('change_video')}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+                  onChange={handleFileUpload}
+                />
+                <Button variant="outline" size="icon" tabIndex={-1} className="bg-muted/50 transition-colors group-hover:bg-muted group-hover:text-foreground">
+                  <Upload className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t('change_video')}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           
           <AnimatePresence>
             {headerShowRes && (
@@ -359,7 +367,7 @@ export default function Home() {
             <div className="w-full h-px transition-colors bg-transparent group-hover:bg-indigo-500/70 group-data-[dragging=true]:bg-indigo-500" />
             <div className="absolute w-12 h-1 rounded-full transition-colors bg-white/20 group-hover:bg-indigo-500/80 group-data-[dragging=true]:bg-indigo-500" />
           </div>
-          <div className="flex-1 flex flex-col h-full border-r border-border overflow-hidden">
+          <div className="group/panel flex-1 flex flex-col h-full border-r border-border overflow-hidden" data-inspector-hidden={!showInspector}>
              <Timeline />
           </div>
 

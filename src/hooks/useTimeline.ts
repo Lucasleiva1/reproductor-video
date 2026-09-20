@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { generateThumbnails } from "@/utils/thumbnailGenerator";
 import { getContentDuration, rippleDeleteClip } from "@/utils/timeline";
 import type { VideoImageAnalysis } from "@/utils/videoAnalyzer";
 
@@ -116,14 +115,9 @@ interface TimelineState {
   setIsFullscreen: (v: boolean) => void;
   fsTransitioning: boolean;
   setFsTransitioning: (v: boolean) => void;
-
-  thumbnails: string[];
-  isGeneratingThumbnails: boolean;
-  ensureThumbnails: () => void;
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
-let thumbnailGenerationToken = 0;
 
 export const useTimeline = create<TimelineState>((set, get) => ({
   // Header visibility (default all true)
@@ -174,54 +168,6 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   fsTransitioning: false,
   setFsTransitioning: (v) => set({ fsTransitioning: v }),
 
-  thumbnails: [],
-  isGeneratingThumbnails: false,
-  ensureThumbnails: () => {
-    const { videoUrl, clips, thumbnails, isGeneratingThumbnails, appMode } = get();
-    const sourceDuration = clips[0]?.sourceDuration ?? 0;
-    if (!videoUrl || sourceDuration <= 0 || appMode !== "editor" || isGeneratingThumbnails) return;
-
-    const targetCount = Math.min(96, Math.max(24, Math.ceil(sourceDuration / 1.5)));
-    const readyCount = thumbnails.filter(Boolean).length;
-    if (readyCount >= Math.ceil(targetCount * 0.85)) return;
-
-    const tokenAtStart = thumbnailGenerationToken;
-    const sourceVideoUrl = videoUrl;
-    set({ isGeneratingThumbnails: true, thumbnails: readyCount > 0 ? thumbnails : [] });
-
-    generateThumbnails({
-      videoUrl,
-      duration: sourceDuration,
-      maxThumbnails: targetCount,
-      thumbnailWidth: 192,
-      thumbnailQuality: 0.78,
-      shouldAbort: () => {
-        const state = get();
-        return (
-          tokenAtStart !== thumbnailGenerationToken ||
-          state.videoUrl !== sourceVideoUrl ||
-          state.appMode !== "editor"
-        );
-      },
-      onThumbnail: (index, _total, dataUrl) => {
-        set((state) => {
-          if (
-            tokenAtStart !== thumbnailGenerationToken ||
-            state.videoUrl !== sourceVideoUrl
-          ) {
-            return state;
-          }
-          const nextThumbnails = [...state.thumbnails];
-          nextThumbnails[index] = dataUrl;
-          return { thumbnails: nextThumbnails };
-        });
-      }
-    }).finally(() => {
-      if (tokenAtStart !== thumbnailGenerationToken) return;
-      set({ isGeneratingThumbnails: false });
-    });
-  },
-
   past: [],
   future: [],
 
@@ -266,7 +212,6 @@ export const useTimeline = create<TimelineState>((set, get) => ({
   setVideoFile: (file, url) => {
     // When a new file is loaded, create an initial clip right at 0s.
     // We don't know the exact duration yet, wait for setDuration to update it.
-    thumbnailGenerationToken += 1;
     set(() => ({ 
       videoFile: file, 
       appMode: "editor",
@@ -277,8 +222,6 @@ export const useTimeline = create<TimelineState>((set, get) => ({
       playing: false,
       imageAnalysis: null,
       showOriginalPreview: false,
-      thumbnails: [],
-      isGeneratingThumbnails: false,
     }));
   },
   
@@ -289,7 +232,6 @@ export const useTimeline = create<TimelineState>((set, get) => ({
       // Ensure Tauri allows access to this file path
       try { await invoke('allow_file_access', { path }); } catch(_) {}
       const url = convertFileSrc(path);
-      thumbnailGenerationToken += 1;
       set(() => ({
         videoFile: null,
         appMode: autoplay ? "player" : "editor",
@@ -300,8 +242,6 @@ export const useTimeline = create<TimelineState>((set, get) => ({
         playing: autoplay,
         imageAnalysis: null,
         showOriginalPreview: false,
-        thumbnails: [],
-        isGeneratingThumbnails: false
       }));
     } catch (err) {
       console.error("Failed to load video by path:", err);

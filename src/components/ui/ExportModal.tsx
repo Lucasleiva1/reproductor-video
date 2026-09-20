@@ -1,5 +1,6 @@
 
 import { useTimeline } from "@/hooks/useTimeline";
+import { useShallow } from "zustand/react/shallow";
 import { useFFmpeg } from "@/hooks/useFFmpeg";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,8 @@ import { useTranslation } from "react-i18next";
 
 export default function ExportModal() {
   const { t } = useTranslation();
-  const { videoFile, videoPath, clips, zoom, posX, posY, resolution, colorCorrection } = useTimeline();
+  // Subscribe only to what this component uses (not to every playback frame)
+  const { videoFile, videoPath, clips, zoom, posX, posY, resolution, colorCorrection } = useTimeline(useShallow((s) => ({ videoFile: s.videoFile, videoPath: s.videoPath, clips: s.clips, zoom: s.zoom, posX: s.posX, posY: s.posY, resolution: s.resolution, colorCorrection: s.colorCorrection })));
   const { loaded, loading, progress, renderVideo } = useFFmpeg();
 
   const [isOpen, setIsOpen] = useState(false);

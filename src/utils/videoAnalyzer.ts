@@ -58,9 +58,14 @@ const seekTo = (video: HTMLVideoElement, time: number) =>
     video.currentTime = time;
   });
 
+// Yield to the UI between samples. A minimized or hidden window never paints, so the animation
+// frame alone would stall the scan: fall back to a timer.
 const waitForPaint = () =>
   new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve());
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    requestAnimationFrame(finish);
+    setTimeout(finish, 30);
   });
 
 const average = (frames: FrameMetrics[], field: keyof FrameMetrics) =>
