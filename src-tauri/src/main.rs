@@ -3,6 +3,8 @@
 
 use tauri::Manager;
 
+mod render;
+
 const SCREENSHOT_FOLDER_NAME: &str = "Capturas de pantalla de Flowuana";
 
 fn ensure_screenshot_folder() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
@@ -148,8 +150,12 @@ fn main() {
       
       app.emit_all("path-selected", argv).unwrap();
     }))
-    .invoke_handler(tauri::generate_handler![get_initial_path, allow_file_access, save_screenshot_png, file_fingerprint])
+    .invoke_handler(tauri::generate_handler![get_initial_path, allow_file_access, save_screenshot_png, file_fingerprint,
+      render::probe_has_audio, render::render_video, render::cancel_render,
+      render::temp_create, render::temp_append, render::temp_delete, render::reveal_in_folder])
     .setup(|app| {
+      render::init();
+
       if let Err(e) = ensure_screenshot_folder() {
         eprintln!("Failed to create screenshot folder: {}", e);
       }

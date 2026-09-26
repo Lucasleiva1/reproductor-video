@@ -1,10 +1,17 @@
-import { useState, useRef, useEffect } from "react";
-import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import { Clip, ColorCorrection, Resolution } from "@/hooks/useTimeline";
 import { getClipDuration, sortClipsByTimeline } from "@/utils/timeline";
 
+// Export runs on the native ffmpeg.exe bundled next to the app (see src-tauri/src/render.rs):
+// it reads the source straight from disk and writes the result straight into
+// Videos\Exportaciones de Flowuana, so there is no size limit and nothing stays in memory.
+
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const FPS = 30;
+const AUDIO_RATE = 48000;
+const UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
+
+export type ExportFormat = "mp4" | "mp3" | "mp4-muted";
 
 const buildColorFilterChain = (colorCorrection?: ColorCorrection) => {
   if (!colorCorrection?.enabled) return "";
@@ -31,260 +38,201 @@ const buildColorFilterChain = (colorCorrection?: ColorCorrection) => {
   return filters.join(",");
 };
 
-export function useFFmpeg() {
-  const [loaded, setLoaded] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [progress, setProgress] = useState(0);
-  const ffmpegRef = useRef<any>(null);
-  const messageRef = useRef<string>("");
+/** Where the zoomed/moved source sits inside the export frame (same math as the preview). */
+const computePlacement = (
+  zoom: number,
+  posX: number,
+  posY: number,
+  sourceWidth: number,
+  sourceHeight: number,
+  resolution: Resolution
+) => {
+  const targetW = resolution.w;
+  const targetH = resolution.h;
 
-  useEffect(() => {
-    ffmpegRef.current = new FFmpeg();
-    load();
-  }, []);
+  const isPortraitToLandscape = sourceHeight > sourceWidth && targetW > targetH;
+  const isLandscapeToPortrait = sourceWidth > sourceHeight && targetH > targetW;
+  const formatRequiresFill = isPortraitToLandscape || isLandscapeToPortrait;
 
-  const load = async () => {
-    setLoading(true);
-    const baseURL = "/ffmpeg";
-    const ffmpeg = ffmpegRef.current;
-    
-    ffmpeg.on("log", ({ message }: any) => {
-      messageRef.current = message;
-      console.log(message);
-    });
-    
-    ffmpeg.on("progress", ({ progress }: any) => {
-      setProgress(Math.round(progress * 100));
-    });
+  const maxScale = Math.max(targetW / sourceWidth, targetH / sourceHeight);
+  const baseAspectScale = targetW / targetH;
+  const sourceAspectScale = sourceWidth / sourceHeight;
+  const aspectAdjustment = formatRequiresFill
+    ? Math.max(baseAspectScale / sourceAspectScale, sourceAspectScale / baseAspectScale)
+    : 1;
 
-    try {
-      await ffmpeg.load({
-        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
-      });
-      setLoaded(true);
-    } catch (e) {
-      console.error("FFmpeg load failed", e);
-    } finally {
-      setLoading(false);
+  const exportScale = (zoom / 100) * aspectAdjustment;
+  const scaledW = Math.max(2, Math.round(sourceWidth * maxScale * exportScale));
+  const scaledH = Math.max(2, Math.round(sourceHeight * maxScale * exportScale));
+
+  const translateXPercent = ((posX - 50) * -1) / 100;
+  const translateYPercent = ((posY - 50) * -1) / 100;
+  let x = Math.round((targetW - scaledW) / 2 + targetW * translateXPercent);
+  let y = Math.round((targetH - scaledH) / 2 + targetH * translateYPercent);
+  if (scaledW % 2 !== 0) x += 1;
+  if (scaledH % 2 !== 0) y += 1;
+
+  return { targetW, targetH, scaledW, scaledH, x, y };
+};
+
+export interface RenderJob {
+  inputPath: string;
+  inputs: { start: number; duration: number }[];
+  filter: string;
+  maps: string[];
+  format: ExportFormat;
+  totalDuration: number;
+  fileName: string;
+}
+
+/**
+ * One ffmpeg run for the whole timeline: every clip is its own input (seeked with -ss/-t,
+ * so only that range is decoded), gaps become black frames + silence, and everything is
+ * joined with the concat filter. Single encode, no intermediate files.
+ */
+export const buildRenderJob = (opts: {
+  inputPath: string;
+  hasAudio: boolean;
+  clips: Clip[];
+  zoom: number;
+  posX: number;
+  posY: number;
+  format: ExportFormat;
+  sourceWidth: number;
+  sourceHeight: number;
+  resolution: Resolution;
+  colorCorrection?: ColorCorrection;
+  fileName: string;
+}): RenderJob => {
+  const { format, hasAudio } = opts;
+  const withVideo = format !== "mp3";
+  const withAudio = format !== "mp4-muted";
+  const { targetW, targetH, scaledW, scaledH, x, y } = computePlacement(
+    opts.zoom, opts.posX, opts.posY, opts.sourceWidth, opts.sourceHeight, opts.resolution
+  );
+  const color = buildColorFilterChain(opts.colorCorrection);
+  const blackFrame = (duration: number) =>
+    `color=c=black:s=${targetW}x${targetH}:r=${FPS}:d=${duration.toFixed(3)}`;
+  const silence = (duration: number) =>
+    `anullsrc=r=${AUDIO_RATE}:cl=stereo,atrim=end=${duration.toFixed(3)}`;
+
+  const inputs: RenderJob["inputs"] = [];
+  const graph: string[] = [];
+  const parts: string[] = [];
+  let cursor = 0;
+
+  const addPart = (videoChain: () => string, audioChain: () => string) => {
+    const n = parts.length;
+    let labels = "";
+    if (withVideo) {
+      graph.push(`${videoChain()},format=yuv420p,setsar=1[v${n}]`);
+      labels += `[v${n}]`;
     }
+    if (withAudio) {
+      graph.push(`${audioChain()}[a${n}]`);
+      labels += `[a${n}]`;
+    }
+    parts.push(labels);
   };
 
-  const renderVideo = async (
-    videoFileOrData: File | Uint8Array,
-    clips: Clip[], // Replaced startTime/endTime with clips array
-    zoom: number,
-    posX: number,
-    posY: number,
-    format: "mp4" | "mp3" | "mp4-muted",
-    sourceWidth: number,
-    sourceHeight: number,
-    resolution: Resolution,
-    colorCorrection?: ColorCorrection
-  ) => {
-    if (!ffmpegRef.current) throw new Error("FFmpeg not loaded");
-    const ffmpeg = ffmpegRef.current;
+  for (const clip of sortClipsByTimeline(opts.clips)) {
+    const duration = getClipDuration(clip);
+    if (duration <= 0) continue;
 
-    const inputName = "input.mp4";
-    const finalOutputName = `output.${format.startsWith("mp4") ? "mp4" : "mp3"}`;
+    const gap = clip.startAt - cursor;
+    if (gap > 0.01) addPart(() => blackFrame(gap), () => silence(gap));
 
-    await ffmpeg.writeFile(inputName, await fetchFile(videoFileOrData instanceof Uint8Array ? new Blob([videoFileOrData as any]) : videoFileOrData));
+    const i = inputs.length;
+    inputs.push({ start: clip.trimStart, duration });
+    addPart(
+      () => {
+        const scaled = [`scale=${scaledW}:${scaledH}`, color, `fps=${FPS}`, "setpts=PTS-STARTPTS"]
+          .filter(Boolean)
+          .join(",");
+        graph.push(`[${i}:v]${scaled}[s${i}]`, `${blackFrame(duration)}[b${i}]`);
+        return `[b${i}][s${i}]overlay=${x}:${y}`;
+      },
+      () =>
+        hasAudio
+          ? `[${i}:a]aresample=${AUDIO_RATE},aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=end=${duration.toFixed(3)},asetpts=PTS-STARTPTS`
+          : silence(duration)
+    );
+    cursor = clip.startAt + duration;
+  }
 
-    const targetW = resolution.w;
-    const targetH = resolution.h;
+  if (inputs.length === 0) throw new Error("No hay clips para exportar.");
 
-    // We calculate scaling just like before for the preview container
-    const isPortraitToLandscape = sourceHeight > sourceWidth && targetW > targetH;
-    const isLandscapeToPortrait = sourceWidth > sourceHeight && targetH > targetW;
-    const formatRequiresFill = isPortraitToLandscape || isLandscapeToPortrait;
-
-    const scaleBaseW = formatRequiresFill ? targetW / sourceWidth : targetW / sourceWidth;
-    const scaleBaseH = formatRequiresFill ? targetH / sourceHeight : targetH / sourceHeight;
-    const maxScale = Math.max(scaleBaseW, scaleBaseH);
-
-    const baseAspectScale = targetW / targetH;
-    const sourceAspectScale = sourceWidth / sourceHeight;
-    const aspectAdjustment = formatRequiresFill 
-      ? Math.max(baseAspectScale / sourceAspectScale, sourceAspectScale / baseAspectScale) 
-      : 1;
-
-    const exportScale = (zoom / 100) * aspectAdjustment;
-    const scaledInternalW = Math.round(sourceWidth * maxScale * exportScale);
-    const scaledInternalH = Math.round(sourceHeight * maxScale * exportScale);
-    const colorFilterChain = buildColorFilterChain(colorCorrection);
-    const scaledVideoFilter = colorFilterChain
-      ? `scale=${scaledInternalW}:${scaledInternalH},${colorFilterChain}[scaled]`
-      : `scale=${scaledInternalW}:${scaledInternalH}[scaled]`;
-
-    const translateXPercent = ((posX - 50) * -1) / 100;
-    const translateYPercent = ((posY - 50) * -1) / 100;
-    
-    let videoX = Math.round((targetW - scaledInternalW) / 2 + (targetW * translateXPercent));
-    let videoY = Math.round((targetH - scaledInternalH) / 2 + (targetH * translateYPercent));
-
-    if (scaledInternalW % 2 !== 0) videoX += 1;
-    if (scaledInternalH % 2 !== 0) videoY += 1;
-
-    // Process each timeline clip individually. The timeline is the source of truth:
-    // each segment uses the original media only between trimStart and trimEnd.
-    const segmentNames: string[] = [];
-    let currentTimelineTime = 0;
-
-    // Order clips by global timeline start time (startAt)
-    const sortedClips = sortClipsByTimeline(clips);
-
-    for (let i = 0; i < sortedClips.length; i++) {
-        const clip = sortedClips[i];
-        
-        // Check for gap BEFORE this clip
-        if (clip.startAt > currentTimelineTime) {
-            const gapDuration = clip.startAt - currentTimelineTime;
-            const gapName = `gap_${i}.${format === "mp3" ? "mp3" : "mp4"}`;
-            segmentNames.push(gapName);
-            
-            console.log(`Generating empty gap segment: ${gapDuration}s`);
-            if (format === "mp3") {
-              await ffmpeg.exec([
-                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-                "-t", gapDuration.toString(),
-                "-acodec", "libmp3lame",
-                "-q:a", "2",
-                gapName
-              ]);
-            } else {
-              const gapArgs =
-                format === "mp4-muted"
-                  ? [
-                      "-f", "lavfi", "-i", `color=c=black:s=${targetW}x${targetH}:r=30`,
-                      "-t", gapDuration.toString(),
-                      "-c:v", "libx264", "-preset", "ultrafast",
-                      "-pix_fmt", "yuv420p",
-                    ]
-                  : [
-                      "-f", "lavfi", "-i", `color=c=black:s=${targetW}x${targetH}:r=30`,
-                      "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-                      "-t", gapDuration.toString(),
-                      "-c:v", "libx264", "-preset", "ultrafast",
-                      "-pix_fmt", "yuv420p",
-                  "-shortest",
-                  "-c:a", "aac",
-                  "-b:a", "128k",
-                  "-ar", "44100"
-                    ];
-              gapArgs.push(gapName);
-              await ffmpeg.exec(gapArgs);
-            }
-        }
-
-        const clipDuration = getClipDuration(clip);
-        if (clipDuration <= 0) continue;
-
-        const segmentName = `segment_${i}.${format === "mp3" ? "mp3" : "mp4"}`;
-        segmentNames.push(segmentName);
-
-        const args = [
-            "-ss", clip.trimStart.toString(),
-            "-i", inputName,
-            "-t", clipDuration.toString(),
-        ];
-
-        if (format === "mp3") {
-            args.push(
-                "-vn",
-                "-acodec", "libmp3lame",
-                "-q:a", "2"
-            );
-        } else {
-            args.push(
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-filter_complex", `color=c=black:s=${targetW}x${targetH}:r=30[bg];[0:v]${scaledVideoFilter};[bg][scaled]overlay=${videoX}:${videoY}:shortest=1,format=yuv420p[out]`,
-                "-map", "[out]",
-                "-map", "0:a?"
-            );
-            if (format === "mp4-muted") {
-                args.push("-an");
-            } else {
-                args.push("-c:a", "aac", "-b:a", "128k", "-ar", "44100");
-            }
-        }
-        
-        args.push(segmentName);
-        console.log(`Rendering segment ${i}`, args);
-        await ffmpeg.exec(args);
-
-        currentTimelineTime = clip.startAt + clipDuration;
-    }
-
-    if (segmentNames.length === 0) throw new Error("No clips to export");
-
-    if (format === "mp3") {
-        // If it's just audio, concat the mp3 files
-        const concatTxtName = "concat.txt";
-        const concatText = segmentNames.map(f => `file '${f}'`).join("\n");
-        await ffmpeg.writeFile(concatTxtName, concatText);
-        
-        await ffmpeg.exec([
-            "-f", "concat",
-            "-safe", "0",
-            "-i", concatTxtName,
-            "-vn",
-            "-acodec", "libmp3lame",
-            "-q:a", "2",
-            finalOutputName
-        ]);
-    } else {
-        // Concat and normalize timestamps/codecs in the final file. This avoids
-        // accelerated-looking playback or stray tails caused by segment metadata.
-        const concatTxtName = "concat.txt";
-        const concatText = segmentNames.map(f => `file '${f}'`).join("\n");
-        await ffmpeg.writeFile(concatTxtName, concatText);
-        
-        const concatArgs = [
-            "-f", "concat",
-            "-safe", "0",
-            "-i", concatTxtName,
-            "-map", "0:v:0",
-            "-map", "0:a?",
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-pix_fmt", "yuv420p",
-        ];
-        if (format === "mp4-muted") {
-          concatArgs.push("-an");
-        } else {
-          concatArgs.push("-c:a", "aac", "-b:a", "128k", "-ar", "44100");
-        }
-        concatArgs.push("-movflags", "+faststart", finalOutputName);
-        await ffmpeg.exec(concatArgs);
-    }
-
-    const data = await ffmpeg.readFile(finalOutputName);
-    const blob = new Blob([data], { type: format === "mp3" ? "audio/mpeg" : "video/mp4" });
-    const url = URL.createObjectURL(blob);
-    
-    // --- MEMORY CLEANUP OPTIMIZATION ---
-    // Delete all virtual files to prevent RAM usage from ballooning on consecutive exports
-    try {
-        await ffmpeg.deleteFile(inputName);
-        await ffmpeg.deleteFile("concat.txt");
-        await ffmpeg.deleteFile(finalOutputName);
-        for (const segment of segmentNames) {
-            await ffmpeg.deleteFile(segment);
-        }
-        console.log("Memoria RAM limpiada con éxito. Listo para la próxima exportación.");
-    } catch (cleanupError) {
-        console.warn("Advertencia: No se pudo limpiar alguna porción de memoria", cleanupError);
-    }
-    
-    // Provide blob URL
-    return url;
-  };
+  const outputs = `${withVideo ? "[outv]" : ""}${withAudio ? "[outa]" : ""}`;
+  graph.push(`${parts.join("")}concat=n=${parts.length}:v=${withVideo ? 1 : 0}:a=${withAudio ? 1 : 0}${outputs}`);
 
   return {
-    loaded,
-    loading,
-    progress,
-    renderVideo,
+    inputPath: opts.inputPath,
+    inputs,
+    filter: graph.join(";"),
+    maps: [withVideo && "[outv]", withAudio && "[outa]"].filter(Boolean) as string[],
+    format,
+    totalDuration: cursor,
+    fileName: opts.fileName,
   };
-}
+};
+
+export const probeHasAudio = async (path: string) => {
+  const { invoke } = await import("@tauri-apps/api/tauri");
+  return invoke<boolean>("probe_has_audio", { path });
+};
+
+/**
+ * Videos opened from the file picker only exist as a File (no disk path), so they are
+ * streamed to a temp file that the caller must delete with `deleteTempCopy`.
+ */
+export const copyFileToTemp = async (file: File, onProgress: (ratio: number) => void) => {
+  const { invoke } = await import("@tauri-apps/api/tauri");
+  const extension = file.name.split(".").pop() || "mp4";
+  const path = await invoke<string>("temp_create", { extension });
+  try {
+    for (let offset = 0; offset < file.size; offset += UPLOAD_CHUNK_BYTES) {
+      const chunk = file.slice(offset, offset + UPLOAD_CHUNK_BYTES);
+      const base64Chunk = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(chunk);
+      });
+      await invoke("temp_append", { path, base64Chunk });
+      onProgress(Math.min(1, (offset + chunk.size) / file.size));
+    }
+  } catch (e) {
+    await deleteTempCopy(path);
+    throw e;
+  }
+  return path;
+};
+
+export const deleteTempCopy = async (path: string) => {
+  const { invoke } = await import("@tauri-apps/api/tauri");
+  await invoke("temp_delete", { path }).catch(() => {});
+};
+
+/** Runs the job; resolves with the saved file path. Rejects with "CANCELADO" on cancel. */
+export const runRender = async (job: RenderJob, onProgress: (ratio: number) => void) => {
+  const { invoke } = await import("@tauri-apps/api/tauri");
+  const { listen } = await import("@tauri-apps/api/event");
+  const unlisten = await listen<{ ratio: number }>("render-progress", (event) =>
+    onProgress(clamp(event.payload.ratio, 0, 1))
+  );
+  try {
+    return await invoke<string>("render_video", { job });
+  } finally {
+    unlisten();
+  }
+};
+
+export const cancelRender = async () => {
+  const { invoke } = await import("@tauri-apps/api/tauri");
+  await invoke("cancel_render");
+};
+
+export const revealInFolder = async (path: string) => {
+  const { invoke } = await import("@tauri-apps/api/tauri");
+  await invoke("reveal_in_folder", { path });
+};
