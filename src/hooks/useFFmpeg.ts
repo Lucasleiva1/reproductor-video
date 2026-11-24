@@ -26,15 +26,24 @@ const buildColorFilterChain = (colorCorrection?: ColorCorrection) => {
   const redGain = clamp(1 + temperature, 0.82, 1.18);
   const blueGain = clamp(1 - temperature, 0.82, 1.18);
 
+  // Gamma general (la misma escala de mpv: -50 a 50) junto con la de las sombras.
+  const gamma = clamp(shadowGamma * Math.pow(2, (colorCorrection.gamma ?? 0) / 50), 0.3, 3);
   const filters = [
-    `eq=brightness=${brightness.toFixed(3)}:contrast=${contrast.toFixed(3)}:saturation=${saturation.toFixed(3)}:gamma=${shadowGamma.toFixed(3)}`,
+    `eq=brightness=${brightness.toFixed(3)}:contrast=${contrast.toFixed(3)}:saturation=${saturation.toFixed(3)}:gamma=${gamma.toFixed(3)}`,
   ];
+
+  // Tono del color: mpv gira hasta 20° de cada lado con el control en ±50.
+  const hueDegrees = clamp((colorCorrection.hue ?? 0) * 0.4, -20, 20);
+  if (Math.abs(hueDegrees) > 0.01) filters.push(`hue=h=${hueDegrees.toFixed(2)}`);
 
   if (Math.abs(colorCorrection.highlights) > 0.01) {
     filters.push(`curves=all='0/0 0.55/0.55 0.85/${highlightPoint.toFixed(3)} 1/1'`);
   }
 
   filters.push(`colorchannelmixer=rr=${redGain.toFixed(3)}:gg=1.000:bb=${blueGain.toFixed(3)}`);
+
+  const sharpness = clamp((colorCorrection.sharpness ?? 0) / 100, 0, 1);
+  if (sharpness > 0.001) filters.push(`unsharp=5:5:${(sharpness * 1.5).toFixed(3)}:5:5:0`);
   return filters.join(",");
 };
 

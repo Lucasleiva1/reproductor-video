@@ -1,20 +1,25 @@
 
-import { useRef, useEffect, useCallback, useLayoutEffect } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import { useTimeline } from "@/hooks/useTimeline";
-import { applyColorPreview } from "@/utils/colorPreview";
-import { ColorOverlays, ColorSliders } from "./ImageAdjust";
+import { ColorSliders } from "./ImageAdjust";
+import { TracksSection, ViewSettingsSection } from "./PlayerPanels";
+import { MetadataSection } from "./MetadataPanel";
+import {
+  DEFAULT_VIEW, buildMpvImage, mpvCommand, mpvEstimatedPosition, mpvOpen, mpvScreenshot, mpvSeek,
+  mpvStop, startMpv, useMpv,
+} from "@/player/mpv";
+import { isVideoPath, pickVideoPath } from "@/player/openVideo";
 import {
   findActiveClip,
+  getClipEnd,
   getContentDuration,
   getSourceTimeForTimeline,
 } from "@/utils/timeline";
 import { motion, AnimatePresence } from "framer-motion";
 import React, { useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2, RotateCcw, X, Copy, PictureInPicture2, SlidersHorizontal, Repeat2, Eye, EyeOff, Columns2, Trash2, Camera } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Upload, MousePointerSquareDashed, Maximize, Volume2, VolumeX, Lock, Unlock, MonitorPlay, Settings2, RotateCcw, X, Copy, PictureInPicture2, SlidersHorizontal, Repeat2, Eye, EyeOff, Columns2, Trash2, Camera, Captions, LoaderCircle, Info } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { analyzeVideoImage, type AnalysisProgress } from "@/utils/videoAnalyzer";
-
-const ReactPlayer = React.lazy(() => import("react-player"));
 
 type CompactWindowSnapshot = {
   size: { width: number; height: number };
@@ -36,13 +41,6 @@ type ScreenshotStatus = {
   queued?: number;
 };
 
-type ScreenshotJob = {
-  filename: string;
-  height: number;
-  video: HTMLVideoElement;
-  width: number;
-};
-
 const formatScreenshotTimestamp = (date = new Date()) => {
   const pad = (value: number, size = 2) => value.toString().padStart(size, "0");
   return [
@@ -56,28 +54,6 @@ const formatScreenshotTimestamp = (date = new Date()) => {
   ].join("-") + `-${pad(date.getMilliseconds(), 3)}`;
 };
 
-const getVideoElementFromPlayer = (player: any): HTMLVideoElement | null => {
-  const internalPlayer = player?.getInternalPlayer?.();
-  if (internalPlayer instanceof HTMLVideoElement) return internalPlayer;
-  if (internalPlayer?.player instanceof HTMLVideoElement) return internalPlayer.player;
-  return null;
-};
-
-const canvasToPngBlob = (canvas: HTMLCanvasElement) =>
-  new Promise<Blob>((resolve, reject) => {
-    try {
-      canvas.toBlob((blob) => {
-        if (!blob) {
-          reject(new Error("No se pudo generar la imagen PNG."));
-          return;
-        }
-        resolve(blob);
-      }, "image/png");
-    } catch (error) {
-      reject(error);
-    }
-  });
-
 const stopScreenshotControlEvent = (event: React.SyntheticEvent, preventDefault = false) => {
   event.stopPropagation();
   if (preventDefault) event.preventDefault();
@@ -86,27 +62,17 @@ const stopScreenshotControlEvent = (event: React.SyntheticEvent, preventDefault 
   }
 };
 
-const downloadScreenshotInBrowser = (blob: Blob, filename: string) => {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-};
-
 export default function Canvas() {
   const { t } = useTranslation();
   const { 
-    appMode, setAppMode, videoUrl, clips, zoom, posX, posY, playing, setPlaying, 
+    appMode, setAppMode, videoUrl, clips, playing, setPlaying, 
     currentTime, setCurrentTime, duration, setDuration, 
-    setVideoFile, resolution, canvasScale, setCanvasScale, videoPath,
+    loadVideoByPath, resolution, canvasScale, setCanvasScale, videoPath,
     isFullscreen, setIsFullscreen, colorCorrection, setColorCorrection, resetColorCorrection, imageAnalysis, setImageAnalysis,
     showOriginalPreview, setShowOriginalPreview
   } = useTimeline();
-  const playerRef = useRef<any>(null);
+  /** Recuadro donde va el video: mpv lo dibuja justo ahí, debajo de la página. */
+  const frameRef = useRef<HTMLDivElement | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const imageControlsRef = useRef<HTMLDivElement>(null);
   const imageSidePanelRef = useRef<HTMLElement>(null);
@@ -114,19 +80,19 @@ export default function Canvas() {
   const screenshotStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const screenshotSoundRef = useRef<HTMLAudioElement | null>(null);
   const screenshotSequenceRef = useRef(0);
-  const screenshotNativeApiRef = useRef<Promise<typeof import("@tauri-apps/api/tauri")> | null>(null);
-  const screenshotCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const screenshotQueueRef = useRef<ScreenshotJob[]>([]);
-  const screenshotProcessingRef = useRef(false);
+  const screenshotChainRef = useRef<Promise<void>>(Promise.resolve());
+  const screenshotPendingRef = useRef(0);
   const [isDragging, setIsDragging] = useState(false);
   const [, setIsMaximized] = useState(false);
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
   const [fsIdle, setFsIdle] = useState(false);
   const [fsFreeMode, setFsFreeMode] = useState(false);
-  const [playerError, setPlayerError] = useState<string | null>(null);
   const [fullscreenError, setFullscreenError] = useState<string | null>(null);
-  const [showImageControls, setShowImageControls] = useState(false);
+  // Panel abierto en el reproductor: "image" (Imagen) o "tracks" (Idioma y subtítulos).
+  const [openPanel, setOpenPanel] = useState<"image" | "tracks" | "metadata" | null>(null);
+  const showImageControls = openPanel !== null;
+  const setShowImageControls = useCallback((open: boolean) => setOpenPanel(open ? "image" : null), []);
   const [screenshotModeEnabled, setScreenshotModeEnabled] = useState(false);
   const [screenshotStatus, setScreenshotStatus] = useState<ScreenshotStatus | null>(null);
   const [screenshotCount, setScreenshotCount] = useState(0);
@@ -178,7 +144,6 @@ export default function Canvas() {
 
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fsTransitionChainRef = useRef<Promise<void>>(Promise.resolve());
-  const sampleLoadTokenRef = useRef(0);
   const hasNativeFullscreenRef = useRef<boolean | null>(null);
   const compactWindowSnapshotRef = useRef<CompactWindowSnapshot | null>(null);
   const isChangingWindowStateRef = useRef(false);
@@ -193,10 +158,8 @@ export default function Canvas() {
   const isTimelineGap = clips.length > 0 && !activeTimelineClip && currentTime < contentDuration;
 
   useEffect(() => {
-    setPlayerError(null);
     setScreenshotCount(0);
     screenshotSequenceRef.current = 0;
-    screenshotQueueRef.current = [];
     setScreenshotStatus(null);
   }, [videoUrl]);
 
@@ -726,34 +689,6 @@ export default function Canvas() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [closePlayerMode, isPlayerSurface]);
 
-  // Auto-load sample video on first mount if no video is loaded
-  useEffect(() => {
-    if (videoUrl) return; // Already has a video
-    sampleLoadTokenRef.current += 1;
-    const token = sampleLoadTokenRef.current;
-    const loadSample = async () => {
-      try {
-        const res = await fetch('/v-1.mp4');
-        if (!res.ok) return;
-        const blob = await res.blob();
-        const file = new File([blob], 'v-1.mp4', { type: 'video/mp4' });
-        const url = URL.createObjectURL(file);
-        const latest = useTimeline.getState();
-        if (token !== sampleLoadTokenRef.current || latest.videoUrl) {
-          URL.revokeObjectURL(url);
-          return;
-        }
-        setVideoFile(file, url);
-      } catch {
-        // Sample not available, that's fine
-      }
-    };
-    loadSample();
-    return () => {
-      sampleLoadTokenRef.current += 1;
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Auto-Fullscreen on video load from OS path
   const lastLoadPathRef = useRef<string | null>(null);
   useEffect(() => {
@@ -765,27 +700,15 @@ export default function Canvas() {
     }
   }, [videoPath, isFullscreen, appMode, enterFullscreenNative]);
   
-  // Keep external scrubs synchronized with the edited timeline.
+  // Al pasar el final de lo editado, se frena (o vuelve al principio si está en repetir).
   useEffect(() => {
-    if (!playerRef.current || clips.length === 0) return;
-
-    const activeClip = findActiveClip(clips, currentTime);
-
-    if (activeClip) {
-      const localTime = getSourceTimeForTimeline(activeClip, currentTime);
-      
-      const currentInternalTime = playerRef.current.getCurrentTime();
-      if (Math.abs(currentInternalTime - localTime) > 0.35) {
-        playerRef.current.seekTo(localTime, "seconds");
+    if (clips.length === 0 || !playing) return;
+    if (!findActiveClip(clips, currentTime) && currentTime >= getContentDuration(clips)) {
+      if (loopPlayback) {
+        setCurrentTime(0);
+        return;
       }
-    } else {
-      if (playing && currentTime >= getContentDuration(clips)) {
-        if (loopPlayback) {
-          setCurrentTime(0);
-          return;
-        }
-        setPlaying(false);
-      }
+      setPlaying(false);
     }
   }, [currentTime, clips, playing, loopPlayback, setCurrentTime, setPlaying]);
 
@@ -829,8 +752,8 @@ export default function Canvas() {
     }
   }, [isCompactWindow, compareMode]);
 
-  // The edited timeline is the master playback clock. ReactPlayer only renders
-  // the source frame that corresponds to the current timeline time.
+  // Reloj de la línea de tiempo. Sobre un corte, la hora la da mpv (así imagen, sonido y barra
+  // van juntos); en los huecos entre cortes avanza solo, con la pantalla en negro.
   useEffect(() => {
     if (!playing || clips.length === 0) return;
 
@@ -841,12 +764,33 @@ export default function Canvas() {
       const elapsed = (now - last) / 1000;
       last = now;
       const state = useTimeline.getState();
-      const nextTime = Math.min(state.currentTime + elapsed, getContentDuration(state.clips));
+      const content = getContentDuration(state.clips);
+      const clip = findActiveClip(state.clips, state.currentTime);
+      let nextTime = state.currentTime + elapsed;
+
+      if (clip) {
+        const engine = useMpv.getState();
+        const estimated = mpvEstimatedPosition();
+        const mpvReady = !!engine.state && engine.state.session === engine.session && engine.state.loaded && !engine.state.ended;
+        if (mpvReady && estimated !== null) {
+          const fromMpv = clip.startAt + (estimated - clip.trimStart);
+          const clipEnd = getClipEnd(clip);
+          if (fromMpv >= clip.startAt - 0.05 && fromMpv <= clipEnd + 0.5) {
+            // Pequeños retrocesos por redondeo no mueven la barra para atrás.
+            nextTime = fromMpv < state.currentTime && state.currentTime - fromMpv < 0.15 ? state.currentTime : fromMpv;
+          } else {
+            // mpv todavía está llegando al salto pedido: la barra espera.
+            nextTime = state.currentTime;
+          }
+          nextTime = Math.min(nextTime, clipEnd);
+        }
+      }
+
+      nextTime = Math.min(nextTime, content);
       state.setCurrentTime(nextTime);
-      if (nextTime >= getContentDuration(state.clips)) {
+      if (nextTime >= content) {
         if (loopPlayback) {
           state.setCurrentTime(0);
-          playerRef.current?.seekTo(0, "seconds");
           frame = requestAnimationFrame(tick);
           return;
         }
@@ -860,52 +804,205 @@ export default function Canvas() {
     return () => cancelAnimationFrame(frame);
   }, [clips.length, loopPlayback, playing]);
 
-  // Force actual pause on internal player to prevent ghost audio
-  useEffect(() => {
-    const internalPlayer = playerRef.current?.getInternalPlayer();
-    if (!internalPlayer) return;
-
-    if (playing) {
-      // Small delay to ensure seek has settled if we just started
-      const t = setTimeout(() => {
-        if (internalPlayer.paused) internalPlayer.play?.().catch(() => {});
-      }, 50);
-      return () => clearTimeout(t);
-    } else {
-      if (!internalPlayer.paused) internalPlayer.pause?.();
-    }
-  }, [playing, videoUrl]);
-
-  const handleProgress = useCallback((state: any) => {
-    if (!playing || clips.length === 0) return;
-    const activeClip = findActiveClip(clips, currentTime);
-    if (!activeClip) return;
-
-    const sourceTime = state.playedSeconds;
-    const expectedSourceTime = getSourceTimeForTimeline(activeClip, currentTime);
-    if (Math.abs(sourceTime - expectedSourceTime) > 0.45) {
-      playerRef.current?.seekTo(expectedSourceTime, "seconds");
-    }
-  }, [playing, clips, currentTime]);
-
-  const handlePlayerError = useCallback(() => {
-    setPlayerError("No se pudo cargar este video.");
-  }, []);
-
-  const scale = zoom / 100;
-  const translateX = (posX - 50) * -1;
-  const translateY = (posY - 50) * -1;
-
   // In player mode: ignore transforms, video fills screen unless unlocked.
   const isFixedMode = isPlayerSurface && !fsFreeMode;
-  const effectiveScale = isFixedMode ? 1 : scale;
-  const effectiveTranslateX = isFixedMode ? 0 : translateX;
-  const effectiveTranslateY = isFixedMode ? 0 : translateY;
   const effectiveCanvasScale = isFixedMode ? 1 : canvasScale;
-  const previewColorEnabled = colorCorrection.enabled && !showOriginalPreview;
-  useLayoutEffect(() => {
-    applyColorPreview(canvasContainerRef.current, colorCorrection, !showOriginalPreview);
-  }, [colorCorrection, showOriginalPreview]);
+
+  // ------------------------------------------------------------------------------------------
+  // Reproductor mpv (el mismo motor de CINE WANA). La línea de tiempo manda: mpv muestra el
+  // cuadro del video que corresponde a cada momento de la edición.
+  // ------------------------------------------------------------------------------------------
+  const mpvAvailable = useMpv((s) => s.available);
+  const mpvUnavailableReason = useMpv((s) => s.unavailableReason);
+  const mpvSession = useMpv((s) => s.session);
+  const mpvVideoReady = useMpv((s) => !!s.state && s.state.session === s.session && s.state.videoReady);
+  const mpvError = useMpv((s) => (s.state && s.state.session === s.session ? s.state.error ?? null : null));
+  const mpvDuration = useMpv((s) => (s.state && s.state.session === s.session ? s.state.duration : 0));
+  const view = useMpv((s) => s.view);
+  const setView = useMpv((s) => s.setView);
+  const playerError = mpvError ?? (mpvAvailable === false ? `No se pudo arrancar el reproductor mpv. ${mpvUnavailableReason ?? ""}`.trim() : null);
+  const mpvShowing = !!videoPath && mpvVideoReady;
+  const fixedModeRef = useRef(isFixedMode);
+  fixedModeRef.current = isFixedMode;
+
+  useEffect(() => {
+    void startMpv();
+  }, []);
+
+  // La página se vuelve transparente en el recuadro del video solo cuando mpv ya está dibujando.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (mpvShowing) root.dataset.mpv = "on";
+    else delete root.dataset.mpv;
+    return () => { delete root.dataset.mpv; };
+  }, [mpvShowing]);
+
+  // Abrir en mpv cada video nuevo (o cerrar mpv si ya no hay video).
+  useEffect(() => {
+    if (mpvAvailable !== true) return;
+    if (!videoPath) {
+      void mpvStop();
+      return;
+    }
+    const state = useTimeline.getState();
+    const clip = findActiveClip(state.clips, state.currentTime);
+    void mpvOpen({
+      path: videoPath,
+      startSeconds: clip ? getSourceTimeForTimeline(clip, state.currentTime) : 0,
+      paused: !state.playing,
+      volume,
+      muted,
+      image: buildMpvImage(state.colorCorrection, !state.showOriginalPreview, useMpv.getState().view),
+    }).catch((error) => {
+      console.error("mpv no pudo abrir el video:", error);
+      useMpv.setState({ unavailableReason: String(error) });
+    });
+  }, [videoPath, mpvAvailable]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // La duración la da mpv: con ella se arma el primer corte de la línea de tiempo.
+  const durationSessionRef = useRef(0);
+  useEffect(() => {
+    if (!mpvSession || mpvDuration <= 0 || durationSessionRef.current === mpvSession) return;
+    durationSessionRef.current = mpvSession;
+    if (useTimeline.getState().clips.length === 0) setDuration(mpvDuration);
+  }, [mpvSession, mpvDuration, setDuration]);
+
+  // Andar o pausar: mpv solo anda cuando la línea de tiempo está sobre un corte.
+  const mpvShouldPause = !(playing && !!activeTimelineClip);
+  useEffect(() => {
+    if (!mpvSession) return;
+    void mpvCommand({ type: "set_pause", paused: mpvShouldPause });
+  }, [mpvShouldPause, mpvSession]);
+
+  // Cuando la línea de tiempo salta (clic, arrastre, flechas, cambio de corte), mpv salta también.
+  useEffect(() => {
+    if (!mpvSession || clips.length === 0) return;
+    const clip = findActiveClip(clips, currentTime);
+    if (!clip) return;
+    const expected = getSourceTimeForTimeline(clip, currentTime);
+    const estimated = mpvEstimatedPosition();
+    if (estimated === null) return;
+    const tolerance = playing ? 0.35 : 0.02;
+    if (Math.abs(estimated - expected) > tolerance) mpvSeek(expected);
+  }, [currentTime, clips, playing, mpvSession]);
+
+  useEffect(() => {
+    if (!mpvSession) return;
+    void mpvCommand({ type: "set_volume", volume });
+  }, [volume, mpvSession]);
+
+  useEffect(() => {
+    if (!mpvSession) return;
+    void mpvCommand({ type: "set_muted", muted });
+  }, [muted, mpvSession]);
+
+  // Colores (se exportan) + ajustes de vista (solo pantalla).
+  useEffect(() => {
+    if (!mpvSession) return;
+    void mpvCommand({ type: "set_image", image: buildMpvImage(colorCorrection, !showOriginalPreview, view) });
+  }, [colorCorrection, showOriginalPreview, view, mpvSession]);
+
+  // Mientras se arrastra un control de imagen, mpv lo muestra al instante (un envío por cuadro).
+  const previewFrameRef = useRef(0);
+  const previewNextRef = useRef<typeof colorCorrection | null>(null);
+  const previewColor = useCallback((next: typeof colorCorrection) => {
+    previewNextRef.current = next;
+    if (previewFrameRef.current) return;
+    previewFrameRef.current = requestAnimationFrame(() => {
+      previewFrameRef.current = 0;
+      const pending = previewNextRef.current;
+      if (!pending) return;
+      void mpvCommand({ type: "set_image", image: buildMpvImage(pending, true, useMpv.getState().view) });
+    });
+  }, []);
+
+  // Ubicar el video de mpv justo en el recuadro de la página (y aplicar el zoom y el corrimiento
+  // del editor). Se revisa en cada cuadro de pantalla y se le avisa a mpv solo si algo cambió.
+  useEffect(() => {
+    if (!mpvSession) return;
+    let raf = 0;
+    let lastMargins = "";
+    let lastFraming = "";
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      const frame = frameRef.current;
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      if (!frame || !width || !height) return;
+      const rect = frame.getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) return;
+      const ratio = (value: number, total: number) => Math.max(0, Math.min(0.95, value / total));
+      const margins = {
+        left: ratio(rect.left, width),
+        right: ratio(width - rect.right, width),
+        top: ratio(rect.top, height),
+        bottom: ratio(height - rect.bottom, height),
+      };
+      const marginsKey = `${margins.left.toFixed(4)},${margins.right.toFixed(4)},${margins.top.toFixed(4)},${margins.bottom.toFixed(4)}`;
+      if (marginsKey !== lastMargins) {
+        lastMargins = marginsKey;
+        void mpvCommand({ type: "set_video_margins", ...margins });
+      }
+
+      const timeline = useTimeline.getState();
+      const fixed = fixedModeRef.current;
+      const zoomFactor = fixed ? 1 : timeline.zoom / 100;
+      const shiftX = fixed ? 0 : (50 - timeline.posX) / 100;
+      const shiftY = fixed ? 0 : (50 - timeline.posY) / 100;
+      const engine = useMpv.getState().state;
+      const videoWidth = engine?.videoWidth ?? 0;
+      const videoHeight = engine?.videoHeight ?? 0;
+      let panX = 0;
+      let panY = 0;
+      if (videoWidth > 0 && videoHeight > 0) {
+        // El editor corre el video en partes del recuadro; mpv lo mide en partes del video agrandado.
+        const fit = Math.min(rect.width / videoWidth, rect.height / videoHeight);
+        panX = (shiftX * rect.width) / (videoWidth * fit * zoomFactor);
+        panY = (shiftY * rect.height) / (videoHeight * fit * zoomFactor);
+      }
+      const framingKey = `${zoomFactor.toFixed(4)},${panX.toFixed(4)},${panY.toFixed(4)}`;
+      if (framingKey !== lastFraming) {
+        lastFraming = framingKey;
+        void mpvCommand({ type: "set_framing", zoom: zoomFactor, pan_x: panX, pan_y: panY });
+      }
+    };
+    loop();
+    return () => cancelAnimationFrame(raf);
+  }, [mpvSession]);
+
+  // Arrastrar un video a la ventana (Tauri entrega la ruta del archivo).
+  useEffect(() => {
+    if (!hasTauriIpc()) return;
+    const cleanups: Array<() => void> = [];
+    let disposed = false;
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const add = async (name: string, handler: (paths: string[]) => void) => {
+        const unlisten = await listen<string[]>(name, (event) => handler(Array.isArray(event.payload) ? event.payload : []));
+        if (disposed) unlisten(); else cleanups.push(unlisten);
+      };
+      await add("tauri://file-drop-hover", (paths) => setIsDragging(paths.some(isVideoPath)));
+      await add("tauri://file-drop-cancelled", () => setIsDragging(false));
+      await add("tauri://file-drop", (paths) => {
+        setIsDragging(false);
+        const path = paths.find(isVideoPath);
+        if (path) void loadVideoByPath(path, false);
+      });
+    })();
+    return () => {
+      disposed = true;
+      cleanups.forEach((cleanup) => cleanup());
+    };
+  }, [loadVideoByPath]);
+
+  const openVideoFromDisk = useCallback(async () => {
+    try {
+      const path = await pickVideoPath();
+      if (path) void loadVideoByPath(path, false);
+    } catch (error) {
+      console.error("No se pudo abrir el selector de videos:", error);
+    }
+  }, [loadVideoByPath]);
   const showScreenshotStatus = useCallback((status: ScreenshotStatus) => {
     setScreenshotStatus(status);
     if (screenshotStatusTimerRef.current) clearTimeout(screenshotStatusTimerRef.current);
@@ -926,130 +1023,48 @@ export default function Canvas() {
     audio.currentTime = 0;
     audio.play().catch(() => {});
   }, []);
-  const getScreenshotNativeApi = useCallback(() => {
-    if (!screenshotNativeApiRef.current) {
-      screenshotNativeApiRef.current = import("@tauri-apps/api/tauri");
-    }
-    return screenshotNativeApiRef.current;
-  }, []);
-  const processScreenshotQueue = useCallback(async () => {
-    if (screenshotProcessingRef.current) return;
-    screenshotProcessingRef.current = true;
-
-    try {
-      while (screenshotQueueRef.current.length > 0) {
-        const job = screenshotQueueRef.current.shift();
-        if (!job) continue;
-        const queuedAfterCurrent = screenshotQueueRef.current.length;
-        const queueLabel = queuedAfterCurrent > 0 ? ` En cola: ${queuedAfterCurrent}.` : "";
-
-        const canvas = screenshotCanvasRef.current ?? document.createElement("canvas");
-        screenshotCanvasRef.current = canvas;
-        canvas.width = job.width;
-        canvas.height = job.height;
-
-        const context = canvas.getContext("2d", { alpha: false });
-        if (!context) {
-          showScreenshotStatus({ type: "error", message: "No se pudo preparar la captura." });
-          continue;
-        }
-
-        try {
-          showScreenshotStatus({
-            type: "success",
-            message: `Procesando captura.${queueLabel}`,
-            percent: 12,
-            queued: queuedAfterCurrent,
-          });
-
-          context.globalCompositeOperation = "source-over";
-          context.globalAlpha = 1;
-          context.filter = "none";
-          context.drawImage(job.video, 0, 0, canvas.width, canvas.height);
-          showScreenshotStatus({
-            type: "success",
-            message: `Codificando PNG.${queueLabel}`,
-            percent: 45,
-            queued: queuedAfterCurrent,
-          });
-
-          const blob = await canvasToPngBlob(canvas);
-          showScreenshotStatus({
-            type: "success",
-            message: `Guardando captura.${queueLabel}`,
-            percent: 78,
-            queued: queuedAfterCurrent,
-          });
-
-          if (hasTauriIpc()) {
-            const nativeApi = await getScreenshotNativeApi();
-            const pngBytes = new Uint8Array(await blob.arrayBuffer());
-            await nativeApi.invoke("save_screenshot_png", {
-              filename: job.filename,
-              bytes: Array.from(pngBytes),
-            });
-          } else {
-            downloadScreenshotInBrowser(blob, job.filename);
-          }
-
-          const pending = screenshotQueueRef.current.length;
-          showScreenshotStatus({
-            type: "success",
-            message: pending > 0 ? `Captura guardada. Quedan ${pending}.` : "Captura guardada.",
-            percent: 100,
-            queued: pending,
-          });
-          setScreenshotCount((count) => count + 1);
-        } catch (error) {
-          console.error("No se pudo guardar la captura:", error);
-          const detail = error instanceof Error ? error.message : String(error);
-          showScreenshotStatus({
-            type: "error",
-            message: detail ? `Error: ${detail}` : "No se pudo guardar una captura.",
-          });
-        }
-
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-      }
-    } finally {
-      screenshotProcessingRef.current = false;
-    }
-  }, [getScreenshotNativeApi, showScreenshotStatus]);
+  // Captura: mpv guarda el cuadro que se está viendo, tal cual viene en el archivo, en
+  // Documentos\Capturas de pantalla de Flowuana. Si se toca varias veces, van en fila.
   const captureCurrentFrame = useCallback(() => {
-    const video = getVideoElementFromPlayer(playerRef.current);
-    if (!video) {
+    if (!mpvShowing) {
       showScreenshotStatus({ type: "error", message: "El video todavia no esta listo para capturar." });
       return;
     }
-
-    if (video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
-      showScreenshotStatus({ type: "error", message: "El video todavia no esta listo para capturar." });
-      return;
-    }
-
     screenshotSequenceRef.current += 1;
     const sequence = screenshotSequenceRef.current.toString().padStart(4, "0");
-    screenshotQueueRef.current.push({
-      filename: `Flowuana-captura-${formatScreenshotTimestamp()}-${sequence}.png`,
-      height: video.videoHeight,
-      video,
-      width: video.videoWidth,
-    });
-
-    const pending = screenshotQueueRef.current.length;
+    const filename = `Flowuana-captura-${formatScreenshotTimestamp()}-${sequence}.png`;
+    screenshotPendingRef.current += 1;
+    const queued = screenshotPendingRef.current - 1;
     showScreenshotStatus({
       type: "success",
-      message: pending > 1 ? `${pending} capturas en cola.` : "Captura en cola.",
-      percent: screenshotProcessingRef.current ? undefined : 0,
-      queued: pending,
+      message: queued > 0 ? `${queued + 1} capturas en cola.` : "Guardando captura.",
+      percent: 30,
+      queued,
     });
-    void processScreenshotQueue();
-  }, [processScreenshotQueue, showScreenshotStatus]);
+    screenshotChainRef.current = screenshotChainRef.current.then(async () => {
+      try {
+        await mpvScreenshot(filename);
+        screenshotPendingRef.current -= 1;
+        const pending = screenshotPendingRef.current;
+        showScreenshotStatus({
+          type: "success",
+          message: pending > 0 ? `Captura guardada. Quedan ${pending}.` : "Captura guardada.",
+          percent: 100,
+          queued: pending,
+        });
+        setScreenshotCount((count) => count + 1);
+      } catch (error) {
+        screenshotPendingRef.current -= 1;
+        console.error("No se pudo guardar la captura:", error);
+        const detail = error instanceof Error ? error.message : String(error);
+        showScreenshotStatus({ type: "error", message: detail ? `Error: ${detail}` : "No se pudo guardar una captura." });
+      }
+    });
+  }, [mpvShowing, showScreenshotStatus]);
   const applyColorCorrection = useCallback((updates: Partial<typeof colorCorrection>) => {
     setShowOriginalPreview(false);
     setColorCorrection({ enabled: true, ...updates });
   }, [setShowOriginalPreview, setColorCorrection]);
-  const getColorPreviewTarget = useCallback(() => canvasContainerRef.current, []);
   const applyColorPreset = (values: typeof colorCorrection) => {
     setShowOriginalPreview(false);
     setColorCorrection(values);
@@ -1072,39 +1087,11 @@ export default function Canvas() {
     }
   };
   const colorPresets = [
-    { label: "Normal", values: { enabled: false, brightness: 0, highlights: 0, contrast: 0, saturation: 0, shadows: 0, temperature: 0 } },
-    { label: "Claro", values: { enabled: true, brightness: 8, highlights: 14, contrast: 6, saturation: 4, shadows: 18, temperature: 2 } },
-    { label: "Vivo", values: { enabled: true, brightness: 3, highlights: 10, contrast: 12, saturation: 18, shadows: 8, temperature: 4 } },
-    { label: "Cine", values: { enabled: true, brightness: -2, highlights: -8, contrast: 10, saturation: -4, shadows: 12, temperature: -5 } },
+    { label: "Normal", values: { enabled: false, brightness: 0, highlights: 0, contrast: 0, saturation: 0, shadows: 0, temperature: 0, gamma: 0, hue: 0, sharpness: 0 } },
+    { label: "Claro", values: { enabled: true, brightness: 8, highlights: 14, contrast: 6, saturation: 4, shadows: 18, temperature: 2, gamma: 0, hue: 0, sharpness: 0 } },
+    { label: "Vivo", values: { enabled: true, brightness: 3, highlights: 10, contrast: 12, saturation: 18, shadows: 8, temperature: 4, gamma: 0, hue: 0, sharpness: 10 } },
+    { label: "Cine", values: { enabled: true, brightness: -2, highlights: -8, contrast: 10, saturation: -4, shadows: 12, temperature: -5, gamma: 0, hue: 0, sharpness: 0 } },
   ];
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-  
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-  
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith("video/")) {
-      const url = URL.createObjectURL(file);
-      setVideoFile(file, url);
-    }
-  };
-  
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && file.type.startsWith("video/")) {
-      const url = URL.createObjectURL(file);
-      setVideoFile(file, url);
-    }
-  };
 
   const skipTime = (amount: number) => {
     const newTime = Math.max(0, Math.min(currentTime + amount, playbackDuration));
@@ -1284,30 +1271,72 @@ export default function Canvas() {
 
                           <ColorSliders
                             value={colorCorrection}
-                            getPreviewTarget={getColorPreviewTarget}
+                            onPreview={previewColor}
                             onCommit={applyColorCorrection}
                           />
 
                           <button
-                            onClick={resetColorCorrection}
+                            onClick={() => { resetColorCorrection(); setView(DEFAULT_VIEW); }}
                             className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors"
                           >
                             Reset imagen
                           </button>
+
+                          <ViewSettingsSection />
     </>
   );
+
+  const panelTitle = openPanel === "tracks" ? "Idioma y subtítulos" : openPanel === "metadata" ? "Metadata" : "Imagen";
+  const panelSubtitle = openPanel === "tracks"
+    ? "Lo que trae el archivo. El idioma queda guardado para este video; el estilo de los subtítulos, para todos."
+    : openPanel === "metadata"
+      ? "Todo lo que se puede leer de este video: archivo, fechas, formato, pistas y etiquetas."
+      : "Los colores se exportan con el video";
+  const panelBody = openPanel === "tracks"
+    ? <TracksSection />
+    : openPanel === "metadata"
+      ? <MetadataSection videoPath={videoPath} />
+      : imageControlsBody;
+  const panelPopover = (
+                    <AnimatePresence>
+                      {showImageControls && !imageAsSidePanel && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 8, scale: imagePanelFit.scale * 0.96 }}
+                          animate={{ opacity: 1, y: 0, scale: imagePanelFit.scale }}
+                          exit={{ opacity: 0, y: 8, scale: imagePanelFit.scale * 0.96 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute right-0 bottom-12 z-10"
+                          style={{ transformOrigin: "bottom right" }}
+                        >
+                        <div
+                          ref={imagePanelRef}
+                          className="w-[min(320px,calc(100vw-24px))] overflow-y-auto rounded-lg border border-white/10 bg-black/85 backdrop-blur-xl shadow-2xl text-white"
+                          style={{ maxHeight: imagePanelFit.maxHeight }}
+                        >
+                          <div className="p-4">
+                          {openPanel !== "image" && (
+                            <div className="mb-3">
+                              <div className="text-sm font-semibold">{panelTitle}</div>
+                              <div className="text-[11px] text-white/50">{panelSubtitle}</div>
+                            </div>
+                          )}
+                          {panelBody}
+                          </div>
+                        </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+  );
+
 
   return (
     <div 
       ref={canvasContainerRef}
-      className={`bg-[#121212] overflow-hidden backdrop-blur-none ${
+      className={`mpv-clear bg-[var(--stage)] overflow-hidden backdrop-blur-none ${
         isWebCompactWindow
           ? 'fixed bottom-6 right-6 z-[100] w-[min(420px,calc(100vw-32px))] h-[260px] max-h-[calc(100vh-32px)] rounded-lg border border-white/15 shadow-2xl p-0'
           : `w-full h-full relative ${isFixedMode ? 'p-0' : 'px-4 pt-4 sm:px-8 sm:pt-8 lg:px-12 lg:pt-12'}`
       }`}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
       onWheel={handleWheel}
       onMouseMove={isPlayerSurface ? resetIdleTimer : undefined}
       style={{
@@ -1318,26 +1347,26 @@ export default function Canvas() {
       {imageSidePanelOpen && (
         <aside
           ref={imageSidePanelRef}
-          className="absolute top-0 right-0 bottom-0 z-[120] overflow-y-auto border-l border-white/10 bg-[#090909]/95 p-5 text-white shadow-[-18px_0_60px_rgba(0,0,0,0.7)] backdrop-blur-xl"
+          className="absolute top-0 right-0 bottom-0 z-[120] overflow-y-auto overflow-x-hidden overscroll-contain border-l border-white/10 bg-[#090909]/95 p-5 text-white shadow-[-18px_0_60px_rgba(0,0,0,0.7)] backdrop-blur-xl"
           style={{ width: "var(--image-panel-width)", cursor: "auto" }}
           onClick={(e) => e.stopPropagation()}
           onDoubleClick={(e) => e.stopPropagation()}
         >
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold">Imagen</div>
-              <div className="text-[11px] text-white/50">Los ajustes se exportan con el video</div>
+              <div className="text-sm font-semibold">{panelTitle}</div>
+              <div className="text-[11px] text-white/50">{panelSubtitle}</div>
             </div>
             <button
               onClick={() => setShowImageControls(false)}
               className="rounded-md p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
               title="Cerrar"
-              aria-label="Cerrar panel de imagen"
+              aria-label="Cerrar panel"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
-          {imageControlsBody}
+          {panelBody}
         </aside>
       )}
       <div
@@ -1353,11 +1382,12 @@ export default function Canvas() {
               <div className="w-full h-full flex flex-col md:flex-row gap-4 p-4 items-center justify-center pointer-events-auto">
                 {/* Left: Original Video */}
                 <div className="flex-1 w-full h-full flex flex-col items-center justify-center relative min-w-0">
-                  <div className="text-xs font-semibold text-white/50 mb-1.5 self-start pl-12">Original</div>
+                  <div className="relative z-10 text-xs font-semibold text-white/50 mb-1.5 self-start pl-12">Original</div>
                   <div
+                    ref={frameRef}
                     onClick={handleScreenClick}
                     onDoubleClick={handleScreenDoubleClick}
-                    className={`relative w-full h-full flex items-center justify-center overflow-hidden bg-black ring-[1px] ring-white/10 shadow-2xl rounded-lg ${isFixedMode ? 'p-0' : ''}`}
+                    className={`mpv-hole mpv-hole-ring relative w-full h-full flex items-center justify-center overflow-hidden bg-black ring-[1px] ring-white/10 shadow-2xl rounded-lg ${isFixedMode ? 'p-0' : ''}`}
                     style={isFixedMode ? {
                       width: '100%',
                       height: '100%',
@@ -1368,47 +1398,30 @@ export default function Canvas() {
                       maxWidth: '100%',
                     }}
                   >
-                    <motion.div
-                      animate={{
-                        scale: effectiveScale,
-                        x: `${effectiveTranslateX}%`,
-                        y: `${effectiveTranslateY}%`,
-                      }}
-                      transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                      className="w-full h-full flex items-center justify-center origin-center relative"
-                    >
-                      <React.Suspense fallback={<div className="w-full h-full bg-black/50 flex items-center justify-center animate-pulse"><MonitorPlay className="w-12 h-12 text-white/20" /></div>}>
-                        <ReactPlayer
-                          ref={playerRef}
-                          url={videoUrl}
-                          width="100%"
-                          height="100%"
-                          playing={playing && !!activeTimelineClip}
-                          volume={volume}
-                          muted={muted}
-                          onPlay={() => setPlaying(true)}
-                          onPause={() => {
-                            if (playing && !isTimelineGap) setPlaying(false);
-                          }}
-                          onDuration={(d: number) => setDuration(d)}
-                          onProgress={handleProgress}
-                          onError={handlePlayerError}
-                          progressInterval={100}
-                          style={{
-                            objectFit: 'contain',
-                            opacity: isTimelineGap ? 0 : 1,
-                            filter: "var(--cc-filter, none)",
-                          }}
-                        />
-                      </React.Suspense>
-                      <ColorOverlays show={previewColorEnabled} />
-                    </motion.div>
+                    {isTimelineGap && <div className="absolute inset-0 bg-black" />}
+                  {!mpvShowing && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black px-6 text-center text-xs text-white/45 pointer-events-none">
+                      {playerError ? (
+                        <span className="text-red-300/90">{playerError}</span>
+                      ) : videoPath ? (
+                        <>
+                          <LoaderCircle className="w-7 h-7 animate-spin text-white/30" />
+                          <span>Abriendo el video con mpv…</span>
+                        </>
+                      ) : (
+                        <>
+                          <MonitorPlay className="w-10 h-10 text-white/20" />
+                          <span>Abrí el video con el botón Abrir para verlo con mpv.</span>
+                        </>
+                      )}
+                    </div>
+                  )}
                   </div>
                 </div>
 
                 {/* Right: Visitor Video */}
                 <div className="flex-1 w-full h-full flex flex-col items-center justify-center relative min-w-0">
-                  <div className="text-xs font-semibold text-white/50 mb-1.5 self-start flex justify-between w-full items-center pr-[140px]">
+                  <div className="relative z-10 text-xs font-semibold text-white/50 mb-1.5 self-start flex justify-between w-full items-center pr-[140px]">
                     <span>Visitante</span>
                     {compareVideoUrl && (
                       <div className="flex items-center gap-2">
@@ -1487,10 +1500,11 @@ export default function Canvas() {
               </div>
             ) : (
               <motion.div 
+                ref={frameRef}
                 data-testid="video-screen"
                 onClick={handleScreenClick}
                 onDoubleClick={handleScreenDoubleClick}
-                className={`relative flex items-center justify-center overflow-hidden shrink-0 transition-shadow duration-300 ${isFixedMode ? 'bg-black' : 'rounded-[4px] bg-black ring-[1px] ring-white/10 shadow-2xl'}`}
+                className={`mpv-hole relative flex items-center justify-center overflow-hidden shrink-0 ${isFixedMode ? 'bg-black' : 'mpv-hole-ring rounded-[4px] bg-black ring-[1px] ring-white/10 shadow-2xl'}`}
                 animate={{
                   scale: effectiveCanvasScale
                 }}
@@ -1505,42 +1519,24 @@ export default function Canvas() {
                   maxWidth: '100%',
                 }}
               >
-                <motion.div
-                  animate={{
-                    scale: effectiveScale,
-                    x: `${effectiveTranslateX}%`,
-                    y: `${effectiveTranslateY}%`,
-                  }}
-                  transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                  className="w-full h-full flex items-center justify-center origin-center relative"
-                >
-                  <React.Suspense fallback={<div className="w-full h-full bg-black/50 flex items-center justify-center animate-pulse"><MonitorPlay className="w-12 h-12 text-white/20" /></div>}>
-                    <ReactPlayer
-                      ref={playerRef}
-                      url={videoUrl}
-                      width="100%"
-                      height="100%"
-                      playing={playing && !!activeTimelineClip}
-                      volume={volume}
-                      muted={muted}
-                      onPlay={() => setPlaying(true)}
-                      onPause={() => {
-                        // Ignore technical pauses caused by timeline gaps; the timeline clock keeps running.
-                        if (playing && !isTimelineGap) setPlaying(false);
-                      }}
-                      onDuration={(d: number) => setDuration(d)}
-                      onProgress={handleProgress}
-                      onError={handlePlayerError}
-                      progressInterval={100}
-                      style={{
-                        objectFit: isFixedMode ? 'contain' : 'contain',
-                        opacity: isTimelineGap ? 0 : 1,
-                        filter: "var(--cc-filter, none)",
-                      }}
-                    />
-                  </React.Suspense>
-                  <ColorOverlays show={previewColorEnabled} />
-                </motion.div>
+                {isTimelineGap && <div className="absolute inset-0 bg-black" />}
+                  {!mpvShowing && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black px-6 text-center text-xs text-white/45 pointer-events-none">
+                      {playerError ? (
+                        <span className="text-red-300/90">{playerError}</span>
+                      ) : videoPath ? (
+                        <>
+                          <LoaderCircle className="w-7 h-7 animate-spin text-white/30" />
+                          <span>Abriendo el video con mpv…</span>
+                        </>
+                      ) : (
+                        <>
+                          <MonitorPlay className="w-10 h-10 text-white/20" />
+                          <span>Abrí el video con el botón Abrir para verlo con mpv.</span>
+                        </>
+                      )}
+                    </div>
+                  )}
               </motion.div>
             )}
 
@@ -1731,7 +1727,9 @@ export default function Canvas() {
                   initial={{ opacity: 0, y: 18 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 18 }}
-                  className={`@container absolute bottom-0 left-0 right-0 z-50 pointer-events-none ${isFullscreen ? 'px-6 sm:px-10 pb-7 pt-24' : 'px-4 sm:px-7 pb-5 pt-20'} bg-gradient-to-t from-black/80 via-black/35 to-transparent`}
+                  className={`@container absolute bottom-0 left-0 right-0 z-50 pointer-events-none ${isFullscreen ? 'px-6 sm:px-10 pb-7 pt-24' : isPlayerSurface ? 'px-4 sm:px-7 pb-5 pt-20' : 'px-3 sm:px-5 pb-1.5 pt-8'} ${isPlayerSurface ? 'bg-gradient-to-t from-black/80 via-black/35 to-transparent' : ''}`}
+                  // En el editor, los mismos controles pero más chicos y pegados abajo.
+                  style={isPlayerSurface ? undefined : { zoom: 0.78 }}
                 >
                   <div
                     className="mb-1 w-full pointer-events-auto"
@@ -1739,7 +1737,7 @@ export default function Canvas() {
                   >
                     <div 
                       className="w-full relative cursor-pointer group"
-                      style={{ padding: '14px 0' }}
+                      style={{ padding: isPlayerSurface ? '14px 0' : '8px 0' }}
                       onPointerDown={(e) => {
                         e.stopPropagation();
                         const bar = e.currentTarget.querySelector('[data-progress-track]') as HTMLElement;
@@ -1765,7 +1763,7 @@ export default function Canvas() {
                     >
                       <div
                         data-progress-track
-                        className="w-full h-1.5 bg-white/20 rounded-full relative group-hover:h-2.5 transition-all"
+                        className="w-full h-1.5 bg-zinc-400/50 rounded-full relative group-hover:h-2.5 transition-all"
                       >
                         <div
                           className="h-full bg-blue-500 rounded-full relative pointer-events-none shadow-[0_0_18px_rgba(59,130,246,0.55)]"
@@ -1881,8 +1879,8 @@ export default function Canvas() {
                       }`}
                       title="Comparar videos"
                     >
-                      <Columns2 className="w-4 h-4 @[720px]:mr-2" />
-                      <span className="hidden @[720px]:inline text-xs font-medium">Comparar</span>
+                      <Columns2 className="w-4 h-4 @[1050px]:mr-2" />
+                      <span className="hidden @[1050px]:inline text-xs font-medium">Comparar</span>
                     </button>
 
                     <div
@@ -1891,39 +1889,40 @@ export default function Canvas() {
                       onClick={(e) => e.stopPropagation()}
                       onDoubleClick={(e) => e.stopPropagation()}
                     >
+                    <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setShowImageControls((v) => !v)}
+                      onClick={() => setOpenPanel((panel) => (panel === "tracks" ? null : "tracks"))}
                       className={`h-10 px-3 rounded-lg bg-black/65 backdrop-blur-md border text-white/70 hover:text-white hover:bg-black/85 flex items-center justify-center transition-all shadow-xl ${
-                        colorCorrection.enabled ? 'border-blue-400/60 text-blue-200' : 'border-white/10'
+                        openPanel === "tracks" ? 'border-blue-400/60 text-blue-200' : 'border-white/10'
+                      }`}
+                      title="Elegir idioma y subtítulos"
+                    >
+                      <Captions className="w-4 h-4 @[1050px]:mr-2" />
+                      <span className="hidden @[1050px]:inline text-xs font-medium">Idioma</span>
+                    </button>
+                    <button
+                      onClick={() => setOpenPanel((panel) => (panel === "image" ? null : "image"))}
+                      className={`h-10 px-3 rounded-lg bg-black/65 backdrop-blur-md border text-white/70 hover:text-white hover:bg-black/85 flex items-center justify-center transition-all shadow-xl ${
+                        colorCorrection.enabled || openPanel === "image" ? 'border-blue-400/60 text-blue-200' : 'border-white/10'
                       }`}
                       title="Mejorar imagen"
                     >
-                      <SlidersHorizontal className="w-4 h-4 @[720px]:mr-2" />
-                      <span className="hidden @[720px]:inline text-xs font-medium">Imagen</span>
+                      <SlidersHorizontal className="w-4 h-4 @[1050px]:mr-2" />
+                      <span className="hidden @[1050px]:inline text-xs font-medium">Imagen</span>
                     </button>
+                    <button
+                      onClick={() => setOpenPanel((panel) => (panel === "metadata" ? null : "metadata"))}
+                      className={`h-10 px-3 rounded-lg bg-black/65 backdrop-blur-md border text-white/70 hover:text-white hover:bg-black/85 flex items-center justify-center transition-all shadow-xl ${
+                        openPanel === "metadata" ? 'border-blue-400/60 text-blue-200' : 'border-white/10'
+                      }`}
+                      title="Ver la metadata del video"
+                    >
+                      <Info className="w-4 h-4 @[1050px]:mr-2" />
+                      <span className="hidden @[1050px]:inline text-xs font-medium">Metadata</span>
+                    </button>
+                    </div>
 
-                    <AnimatePresence>
-                      {showImageControls && !imageAsSidePanel && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 8, scale: imagePanelFit.scale * 0.96 }}
-                          animate={{ opacity: 1, y: 0, scale: imagePanelFit.scale }}
-                          exit={{ opacity: 0, y: 8, scale: imagePanelFit.scale * 0.96 }}
-                          transition={{ duration: 0.15 }}
-                          className="absolute right-0 bottom-12 z-10"
-                          style={{ transformOrigin: "bottom right" }}
-                        >
-                        <div
-                          ref={imagePanelRef}
-                          className="w-[min(320px,calc(100vw-24px))] overflow-y-auto rounded-lg border border-white/10 bg-black/85 backdrop-blur-xl shadow-2xl text-white"
-                          style={{ maxHeight: imagePanelFit.maxHeight }}
-                        >
-                          <div className="p-4">
-                          {imageControlsBody}
-                          </div>
-                        </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                    {panelPopover}
                     </div>
 
                     <button
@@ -1943,11 +1942,11 @@ export default function Canvas() {
                         }
                       }}
                       onDoubleClick={(e) => e.stopPropagation()}
-                      className="h-10 px-3 @[860px]:px-4 rounded-lg bg-black/65 backdrop-blur-md border border-white/10 text-white/70 hover:text-white hover:bg-black/85 flex items-center justify-center transition-all shrink-0 shadow-xl"
+                      className="h-10 px-3 @[1250px]:px-4 rounded-lg bg-black/65 backdrop-blur-md border border-white/10 text-white/70 hover:text-white hover:bg-black/85 flex items-center justify-center transition-all shrink-0 shadow-xl"
                       title={appMode === "player" ? 'Editar' : 'Pantalla Completa'}
                     >
-                      {appMode === "player" ? <Settings2 className="w-4 h-4 @[860px]:mr-2" /> : <Maximize className="w-4 h-4 @[860px]:mr-2" />}
-                      <span className="hidden @[860px]:inline text-xs font-medium">
+                      {appMode === "player" ? <Settings2 className="w-4 h-4 @[1250px]:mr-2" /> : <Maximize className="w-4 h-4 @[1250px]:mr-2" />}
+                      <span className="hidden @[1250px]:inline text-xs font-medium">
                         {appMode === "player" ? 'Editar' : 'Pantalla Completa'}
                       </span>
                     </button>
@@ -1966,8 +1965,11 @@ export default function Canvas() {
           </div>
         ) : (
           <div className={`w-full h-full flex flex-col items-center justify-center border-2 border-dashed rounded-xl transition-all ${isDragging ? 'border-blue-500 bg-blue-500/10' : 'border-border bg-muted/20 hover:border-muted-foreground/50 hover:bg-muted/30'}`}>
-            <label className="cursor-pointer flex flex-col items-center gap-4 p-12 text-center relative z-10 w-full h-full justify-center">
-              <input type="file" className="hidden" accept="video/*" onChange={handleFileSelect} />
+            <button
+              type="button"
+              onClick={() => void openVideoFromDisk()}
+              className="cursor-pointer flex flex-col items-center gap-4 p-12 text-center relative z-10 w-full h-full justify-center group"
+            >
               <div className="w-20 h-20 rounded-full bg-background border border-border flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform duration-300">
                 {isDragging ? <MousePointerSquareDashed className="w-8 h-8 text-blue-500" /> : <Upload className="w-8 h-8 text-muted-foreground" />}
               </div>
@@ -1979,7 +1981,7 @@ export default function Canvas() {
                   {t('upload_desc')}
                 </p>
               </div>
-            </label>
+            </button>
           </div>
         )}
         </div>

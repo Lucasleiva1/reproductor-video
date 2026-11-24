@@ -46,3 +46,6 @@ next-env.d.ts
 /src-tauri/gen/
 /src-tauri/bin/
 
+
+# libmpv (pesa ~97 MB, se baja con scripts/setup-libmpv.ps1)
+/src-tauri/mpv/libmpv-2.dll

@@ -8,7 +8,7 @@
   },
   "package": {
     "productName": "Flowuana",
-    "version": "2.2.3"
+    "version": "2.2.4"
   },
   "tauri": {
     "allowlist": {
@@ -30,6 +30,9 @@
       },
       "process": {
         "relaunch": true
+      },
+      "dialog": {
+        "open": true
       }
     },
     "bundle": {
@@ -58,7 +61,13 @@
         "providerShortName": null,
         "signingIdentity": null
       },
-      "resources": [],
+      "resources": [
+        "mpv/libmpv-2.dll",
+        "mpv/LICENSE-LGPL-2.1.txt",
+        "mpv/AVISO-LIBMPV.txt",
+        "mpv/fonts/Montserrat-SemiBold.ttf",
+        "mpv/fonts/OFL-Montserrat.txt"
+      ],
       "shortDescription": "",
       "targets": [
         "nsis",
@@ -93,7 +102,8 @@
         "height": 800,
         "resizable": true,
         "title": "Flowuana",
-        "width": 1280
+        "width": 1280,
+        "transparent": true
       }
     ]
   }

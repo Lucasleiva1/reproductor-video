@@ -48,6 +48,12 @@
 }
 
 :root {
+  /* Fondo alrededor del video y fondo de los cortes de la línea de tiempo */
+  --stage: #ececef;
+  --clip-bg: #d4d4d8;
+  --scroll-track: #e4e4e7;
+  --scroll-thumb: #a1a1aa;
+  --scroll-thumb-hover: #71717a;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -83,6 +89,11 @@
 }
 
 .dark {
+  --stage: #121212;
+  --clip-bg: #101014;
+  --scroll-track: #18181b;
+  --scroll-thumb: #52525b;
+  --scroll-thumb-hover: #71717a;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -134,16 +145,16 @@
   height: 12px;
 }
 ::-webkit-scrollbar-track {
-  background: #18181b; /* Default track slightly darker */
+  background: var(--scroll-track);
   border-radius: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #52525b; /* zinc-600 */
+  background: var(--scroll-thumb);
   border-radius: 8px;
-  border: 3px solid #18181b; /* Creates the padded look */
+  border: 3px solid var(--scroll-track);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #71717a; /* zinc-500 */
+  background: var(--scroll-thumb-hover);
 }
 
 /* Fullscreen mode: kill any stray borders/outlines */
@@ -169,4 +180,24 @@ html:has(.fullscreen-active) {
   margin: 0 !important;
   padding: 0 !important;
   overflow: hidden !important;
+}
+/* Reproductor mpv (como en CINE WANA): mpv dibuja el video en la ventana, por debajo de la página.
+   Mientras hay un video, la página se vuelve transparente solo en el recuadro del video (.mpv-hole);
+   alrededor, la sombra del recuadro pinta el mismo gris del editor y tapa el resto de mpv. */
+html[data-mpv="on"],
+html[data-mpv="on"] body,
+html[data-mpv="on"] #root,
+html[data-mpv="on"] .mpv-clear {
+  background: transparent !important;
+}
+html[data-mpv="on"] .mpv-solid {
+  background-color: var(--background) !important;
+  backdrop-filter: none !important;
+}
+html[data-mpv="on"] .mpv-hole {
+  background: transparent !important;
+  box-shadow: 0 0 0 200vmax var(--stage) !important;
+}
+html[data-mpv="on"] .mpv-hole.mpv-hole-ring {
+  box-shadow: 0 0 0 1px rgba(127, 127, 127, 0.25), 0 0 0 200vmax var(--stage) !important;
 }

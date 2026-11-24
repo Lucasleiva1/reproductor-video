@@ -247,6 +247,16 @@ function Timeline() {
 
   // Unified drag state for move + trim
   const [activeClipId, setActiveClipId] = useState<string | null>(null);
+  // Corte elegido: queda marcado después de soltarlo, hasta tocar otro corte, el fondo o Escape.
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!selectedClipId) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedClipId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedClipId]);
   const [dragMode, setDragMode] = useState<DragMode>(null);
   const [isSnapped, setIsSnapped] = useState(false);
   const [trimmingSide, setTrimmingSide] = useState<'left' | 'right' | null>(null);
@@ -340,6 +350,7 @@ function Timeline() {
       initialScrollLeft: scrollContainerRef.current?.scrollLeft || 0,
     };
     setActiveClipId(clipId);
+    setSelectedClipId(clipId);
     setDragMode(mode);
     setTrimmingSide(mode === 'trim-left' ? 'left' : mode === 'trim-right' ? 'right' : null);
   };
@@ -643,10 +654,10 @@ function Timeline() {
   };
 
   return (
-    <div className="flex-1 flex w-full relative bg-[#0c0c0e]/95 backdrop-blur-sm p-6 flex-col gap-4 overflow-hidden">
+    <div className="flex-1 flex w-full relative bg-background px-4 pt-3 pb-1 flex-col gap-2 overflow-hidden">
       {/* Toolbar: fixed-height row; the help box has its own fixed slot so tips never shift the buttons */}
-      <div className="@container shrink-0 group-data-[inspector-hidden=true]/panel:mr-12">
-      <div className="flex min-h-[52px] items-center gap-1.5 rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-1.5">
+      <div className="@container shrink-0">
+      <div className="flex min-h-[52px] items-center gap-1.5 rounded-xl border border-border bg-muted/40 p-1.5">
         <button
           onClick={() => setPlaying(!playing)}
           aria-label={playing ? "Pausar reproducción" : "Iniciar reproducción"}
@@ -667,7 +678,7 @@ function Timeline() {
           className={`relative flex h-10 shrink-0 items-center gap-2 rounded-lg border px-2.5 @[620px]:px-3 text-xs font-medium transition-colors ${
             bladeMode
               ? 'border-red-400/60 bg-red-500 text-white shadow-lg shadow-red-500/30'
-              : 'border-zinc-700/60 bg-zinc-800/60 text-zinc-300 hover:bg-zinc-700/70 hover:text-white'
+              : 'border-border bg-muted text-foreground/80 hover:bg-accent hover:text-foreground'
           }`}
         >
           <Scissors className="h-4 w-4" />
@@ -686,7 +697,7 @@ function Timeline() {
           className={`flex h-10 shrink-0 items-center gap-2 rounded-lg border px-2.5 @[620px]:px-3 text-xs font-medium transition-colors ${
             snappingActive
               ? 'border-indigo-500/40 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25'
-              : 'border-zinc-700/60 bg-zinc-800/60 text-zinc-400 hover:bg-zinc-700/70 hover:text-white'
+              : 'border-border bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'
           }`}
         >
           <Magnet className="h-4 w-4" />
@@ -716,7 +727,7 @@ function Timeline() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -3 }}
                 transition={{ duration: 0.2 }}
-                className="[grid-area:1/1] text-zinc-400 group-hover:text-zinc-300"
+                className="[grid-area:1/1] text-muted-foreground group-hover:text-foreground"
               >
                 <Lightbulb className="mr-1 inline h-3 w-3 align-[-2px] text-amber-400" />
                 <span className="mr-1 font-semibold tabular-nums text-amber-400/80">{currentTip + 1}/{TIPS_COUNT}</span>
@@ -727,13 +738,13 @@ function Timeline() {
         ) : null}
         <div className={showTips ? "flex-1 @[430px]:hidden" : "flex-1"} />
 
-        <div className="flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-zinc-700/60 bg-zinc-800/40 pl-2 @[720px]:pl-3 pr-2">
-          <span className="hidden @[720px]:inline text-[11px] font-medium text-zinc-400">{t('zoom')}</span>
+        <div className="flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-muted/50 pl-2 @[720px]:pl-3 pr-2">
+          <span className="hidden @[720px]:inline text-[11px] font-medium text-muted-foreground">{t('zoom')}</span>
           <button
             onClick={() => setTimelineZoom(Math.max(minZoom, timelineZoom / 1.5))}
             aria-label={t('zoom_out')}
             title={t('zoom_out')}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-white"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <Minus className="h-3.5 w-3.5" />
           </button>
@@ -772,11 +783,11 @@ function Timeline() {
             onClick={() => setTimelineZoom(Math.min(maxZoom, timelineZoom * 1.5))}
             aria-label={t('zoom_in')}
             title={t('zoom_in')}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-white"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
-          <span className="w-10 text-right text-[11px] font-semibold tabular-nums text-zinc-300">
+          <span className="w-10 text-right text-[11px] font-semibold tabular-nums text-foreground/80">
             {timelineZoom < 10 ? timelineZoom.toFixed(1) : timelineZoom.toFixed(0)}x
           </span>
         </div>
@@ -786,7 +797,7 @@ function Timeline() {
       {/* Timeline Rail */}
       <div 
         ref={scrollContainerRef}
-        className={`flex-1 overflow-x-scroll overflow-y-hidden custom-scrollbar pb-2 relative rounded-xl border border-zinc-800/50 bg-zinc-900/30 ${bladeMode ? 'cursor-crosshair' : ''}`}
+        className={`flex-1 overflow-x-scroll overflow-y-hidden custom-scrollbar pb-2 relative rounded-xl border border-border bg-muted/30 ${bladeMode ? 'cursor-crosshair' : ''}`}
         style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.3) inset' }}
         onPointerDown={onPanStart} onPointerMove={onPanMove} onPointerUp={onPanEnd}
       >
@@ -817,7 +828,7 @@ function Timeline() {
               const totalLines = Math.floor(viewDuration / step);
               for (let i = 0; i <= totalLines; i++) {
                 const sec = i * step;
-                lines.push(<div key={sec} className="absolute top-0 bottom-0 w-px bg-white/[0.03]" style={{ left: `${sec * pixelsPerSecond}px` }} />);
+                lines.push(<div key={sec} className="absolute top-0 bottom-0 w-px bg-foreground/[0.06]" style={{ left: `${sec * pixelsPerSecond}px` }} />);
               }
               return lines;
             })()}
@@ -825,7 +836,7 @@ function Timeline() {
 
           {/* Scrubbing Ruler – tall hit area for easy seeking */}
           <div 
-            className="absolute top-0 left-0 right-0 h-10 z-40 hover:bg-white/[0.02] transition-colors border-b border-zinc-800/50"
+            className="absolute top-0 left-0 right-0 h-10 z-40 hover:bg-foreground/[0.03] transition-colors border-b border-border"
             style={{ cursor: bladeMode ? 'crosshair' : 'col-resize' }}
             onPointerDown={(e) => { 
                 if (!bladeMode) { 
@@ -895,13 +906,13 @@ function Timeline() {
                     {isMajor ? (
                       <>
                         {timelineTimeMode !== 'hidden' && (
-                          <span className="text-[9px] text-zinc-500 font-mono select-none leading-none mb-0.5">
+                          <span className="text-[9px] text-muted-foreground font-mono select-none leading-none mb-0.5">
                             {formatTime(sec)}
                           </span>
                         )}
-                        <div className="w-px h-2 bg-zinc-600" />
+                        <div className="w-px h-2 bg-muted-foreground/60" />
                       </>
-                    ) : <div className="w-px h-1 bg-zinc-700/50" />}
+                    ) : <div className="w-px h-1 bg-muted-foreground/30" />}
                   </div>
                 );
               }
@@ -929,6 +940,7 @@ function Timeline() {
               if (bladeMode) return;
               // Only scrub if clicking on the empty background, not on a clip
               if ((e.target as HTMLElement).closest('[data-clip-body]')) return;
+              setSelectedClipId(null);
               e.currentTarget.setPointerCapture(e.pointerId);
               isScrubbing.current = true;
               handleScrub(e.clientX);
@@ -964,6 +976,8 @@ function Timeline() {
                 const clipWidthPx = Math.max(1, clipDur * pixelsPerSecond);
                 const color = CLIP_COLORS[index % CLIP_COLORS.length];
                 const isDragging = activeClipId === clip.id;
+                const isSelected = selectedClipId === clip.id;
+                const someoneSelected = selectedClipId !== null && clips.some((c) => c.id === selectedClipId);
                 const isTrimming = isDragging && (dragMode === 'trim-left' || dragMode === 'trim-right');
                 
                 return (
@@ -974,7 +988,9 @@ function Timeline() {
                         left: `${clipStartPx}px`, 
                         width: `${clipWidthPx}px`,
                         height: '70%',
-                        zIndex: isDragging ? 50 : 10,
+                        zIndex: isDragging ? 50 : isSelected ? 30 : 10,
+                        opacity: someoneSelected && !isSelected && !isDragging ? 0.55 : 1,
+                        transition: 'opacity 0.15s',
                       }}
                     >
                         {/* ===== CLIP BODY (drag to move) ===== */}
@@ -982,15 +998,18 @@ function Timeline() {
                           className="absolute inset-0 flex flex-col justify-center overflow-hidden"
                           style={{ 
                             cursor: bladeMode ? 'crosshair' : (isDragging && dragMode === 'move' ? 'grabbing' : 'grab'),
-                            backgroundColor: isDragging && isSnapped ? color.bg.replace('0.15', '0.35') : '#101014',
-                            borderWidth: '2px',
+                            backgroundColor: isDragging && isSnapped ? color.bg.replace('0.15', '0.35') : 'var(--clip-bg)',
+                            borderWidth: isSelected ? '3px' : '2px',
                             borderStyle: 'solid',
-                            borderColor: isTrimming ? '#fff' : (isDragging && isSnapped ? color.solid : color.border),
+                            borderColor: isTrimming ? '#fff' : (isSelected || (isDragging && isSnapped) ? color.solid : color.border),
                             borderRadius: '8px',
                             backdropFilter: 'blur(4px)',
-                            boxShadow: isDragging 
-                              ? `0 10px 30px rgba(0,0,0,0.5), 0 0 20px ${color.solid}40` 
-                              : 'none',
+                            // Elegido: contorno blanco por fuera y un brillo del color del corte.
+                            boxShadow: isSelected
+                              ? `0 0 0 2px #ffffff, 0 0 22px ${color.solid}cc${isDragging ? ', 0 10px 30px rgba(0,0,0,0.5)' : ''}`
+                              : isDragging
+                                ? `0 10px 30px rgba(0,0,0,0.5), 0 0 20px ${color.solid}40`
+                                : 'none',
                             transform: isDragging && dragMode === 'move' ? 'scaleY(1.06)' : 'scaleY(1)',
                             transition: 'box-shadow 0.2s, transform 0.15s, background-color 0.2s, border-color 0.15s',
                           }}
@@ -1001,6 +1020,9 @@ function Timeline() {
                           onPointerCancel={onDragEnd}
                         >
                           <div className="absolute inset-x-0 top-0 h-[18px] bg-black/80 pointer-events-none" />
+                          {isSelected && (
+                            <div className="absolute inset-0 pointer-events-none z-[5]" style={{ backgroundColor: color.bg.replace('0.15', '0.22') }} />
+                          )}
                           <div className="absolute inset-x-0 bottom-0 h-[18px] bg-black/80 pointer-events-none" />
                           <FilmstripTiles
                             source={filmstripSource}
@@ -1035,7 +1057,7 @@ function Timeline() {
 
                         {/* ===== LEFT TRIM HANDLE ===== */}
                         <div
-                          className="absolute top-0 bottom-0 left-0 w-3 z-20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                          className={`absolute top-0 bottom-0 left-0 w-3 z-20 flex items-center justify-center group-hover:opacity-100 transition-opacity ${isSelected ? "opacity-100" : "opacity-0"}`}
                           style={{ 
                             cursor: 'ew-resize',
                             transform: 'translateX(-50%)',
@@ -1061,7 +1083,7 @@ function Timeline() {
 
                         {/* ===== RIGHT TRIM HANDLE ===== */}
                         <div
-                          className="absolute top-0 bottom-0 right-0 w-3 z-20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                          className={`absolute top-0 bottom-0 right-0 w-3 z-20 flex items-center justify-center group-hover:opacity-100 transition-opacity ${isSelected ? "opacity-100" : "opacity-0"}`}
                           style={{ 
                             cursor: 'ew-resize',
                             transform: 'translateX(50%)',
@@ -1085,7 +1107,7 @@ function Timeline() {
                           />
                         </div>
                     </ContextMenuTrigger>
-                    <ContextMenuContent className="bg-zinc-900 border-zinc-700">
+                    <ContextMenuContent className="bg-popover border-border">
                       <ContextMenuItem 
                         className="text-red-400 focus:text-red-400 cursor-pointer flex items-center gap-2 hover:bg-red-500/10"
                         onClick={() => removeClip(clip.id)}
@@ -1101,13 +1123,33 @@ function Timeline() {
         </motion.div>
       </div>
 
-      {/* Footer */}
-      <div className="flex justify-between items-center text-zinc-600 text-[10px] uppercase font-bold tracking-widest">
-        <span className="font-mono">00:00.0</span>
-        <span className={snappingActive ? 'text-indigo-400' : 'text-zinc-600'}>
-          {trimmingSide ? `✏️ Trimming ${trimmingSide === 'left' ? 'Inicio' : 'Final'}` : snappingActive ? `Snapping Activo (${SNAP_THRESHOLD_PX}px)` : 'Snapping Off'}
-        </span>
-        <span className="font-mono">{formatTime(viewDuration)}</span>
+      {/* Abajo: lo que está activo ahora, en una línea finita */}
+      <div className="flex h-5 shrink-0 items-center justify-between gap-3 text-[10px] font-semibold text-muted-foreground">
+        <span className="font-mono tabular-nums">00:00.0</span>
+        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+          <span
+            className={`flex items-center gap-1 rounded-full border px-2 py-px ${
+              snappingActive
+                ? 'border-indigo-500/40 bg-indigo-500/10 text-indigo-500 dark:text-indigo-300'
+                : 'border-border text-muted-foreground'
+            }`}
+          >
+            <Magnet className="h-3 w-3" />
+            {snappingActive ? 'Imán activo' : 'Imán apagado'}
+          </span>
+          {bladeMode && (
+            <span className="flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-2 py-px text-red-500 dark:text-red-300">
+              <Scissors className="h-3 w-3" />
+              {bladeModeLimit === 0 ? 'Tijera activa' : `Tijera activa · ${bladeCutsRemaining} corte${bladeCutsRemaining !== 1 ? 's' : ''}`}
+            </span>
+          )}
+          {trimmingSide && (
+            <span className="flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-px text-amber-600 dark:text-amber-300">
+              Recortando el {trimmingSide === 'left' ? 'inicio' : 'final'}
+            </span>
+          )}
+        </div>
+        <span className="font-mono tabular-nums">{formatTime(viewDuration)}</span>
       </div>
     </div>
   );

@@ -3,11 +3,13 @@
 
 use tauri::Manager;
 
+mod mpv_engine;
+mod mpv_host;
 mod render;
 
 const SCREENSHOT_FOLDER_NAME: &str = "Capturas de pantalla de Flowuana";
 
-fn ensure_screenshot_folder() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+pub(crate) fn ensure_screenshot_folder() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
   let documents = tauri::api::path::document_dir().ok_or("Documents directory not found")?;
   let screenshot_folder = documents.join(SCREENSHOT_FOLDER_NAME);
   std::fs::create_dir_all(&screenshot_folder)?;
@@ -96,30 +98,6 @@ fn allow_file_access(app_handle: tauri::AppHandle, path: String) -> Result<(), S
   Ok(())
 }
 
-#[tauri::command]
-fn save_screenshot_png(filename: String, bytes: Vec<u8>) -> Result<String, String> {
-  if bytes.is_empty() {
-    return Err("La captura PNG esta vacia.".into());
-  }
-
-  let clean_filename = std::path::Path::new(&filename)
-    .file_name()
-    .and_then(|name| name.to_str())
-    .ok_or_else(|| "Nombre de captura invalido.".to_string())?;
-
-  if !clean_filename.to_ascii_lowercase().ends_with(".png") {
-    return Err("La captura debe ser PNG.".into());
-  }
-
-  let folder = ensure_screenshot_folder()
-    .map_err(|e| format!("No se pudo preparar la carpeta de capturas: {}", e))?;
-  let target = folder.join(clean_filename);
-  std::fs::write(&target, bytes)
-    .map_err(|e| format!("No se pudo escribir la captura PNG: {}", e))?;
-
-  Ok(target.to_string_lossy().to_string())
-}
-
 /// Size + last modification time: identifies a video file so the timeline filmstrip cache
 /// can be reused when the same file is opened again (and discarded if the file changes).
 #[tauri::command]
@@ -135,6 +113,11 @@ fn file_fingerprint(path: String) -> Result<String, String> {
 }
 
 fn main() {
+  // Flowuana se abre a sí mismo con este aviso para probar libmpv sin arriesgar la ventana.
+  if let Some(code) = mpv_host::run_probe_if_requested() {
+    std::process::exit(code);
+  }
+
   tauri::Builder::default()
     .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
       println!("{}, {argv:?}, {_cwd}", app.package_info().name);
@@ -150,11 +133,25 @@ fn main() {
       
       app.emit_all("path-selected", argv).unwrap();
     }))
-    .invoke_handler(tauri::generate_handler![get_initial_path, allow_file_access, save_screenshot_png, file_fingerprint,
+    .invoke_handler(tauri::generate_handler![get_initial_path, allow_file_access, file_fingerprint,
+      mpv_host::mpv_status, mpv_host::mpv_open, mpv_host::mpv_command, mpv_host::mpv_stop, mpv_host::mpv_screenshot, mpv_host::mpv_metadata,
       render::probe_has_audio, render::render_video, render::cancel_render,
       render::temp_create, render::temp_append, render::temp_delete, render::reveal_in_folder])
     .setup(|app| {
       render::init();
+
+      // Reproductor mpv: la librería viaja en la carpeta de recursos "mpv".
+      let resolver = app.path_resolver();
+      let data_dir = resolver
+        .app_data_dir()
+        .unwrap_or_else(|| std::env::temp_dir().join("Flowuana"))
+        .join("mpv");
+      let host: mpv_host::SharedHost = std::sync::Arc::new(mpv_host::MpvHost::new(
+        app.handle(),
+        resolver.resource_dir(),
+        data_dir,
+      ));
+      app.manage(host);
 
       if let Err(e) = ensure_screenshot_folder() {
         eprintln!("Failed to create screenshot folder: {}", e);

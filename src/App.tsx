@@ -7,11 +7,12 @@ import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useTimeline, RESOLUTIONS } from "@/hooks/useTimeline";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
-import { Upload, LayoutPanelLeft, Keyboard, BookOpen } from "lucide-react";
+import { Upload, ChevronLeft, Keyboard, BookOpen } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useTranslation } from "react-i18next";
 import React, { useState, useEffect, useRef, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { isVideoPath, pickVideoPath } from "@/player/openVideo";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export default function Home() {
@@ -57,7 +58,7 @@ export default function Home() {
   };
   const { t, i18n } = useTranslation();
   // Subscribe only to what this component uses (not to every playback frame)
-  const { appMode, setVideoFile, loadVideoByPath, resolution, setResolution, duration, setPlaying, setCurrentTime, canvasScale, setCanvasScale, isFullscreen, headerShowLang, headerShowRes, headerShowShortcuts, headerShowTheme, headerShowTutorial } = useTimeline(useShallow((s) => ({ appMode: s.appMode, setVideoFile: s.setVideoFile, loadVideoByPath: s.loadVideoByPath, resolution: s.resolution, setResolution: s.setResolution, duration: s.duration, setPlaying: s.setPlaying, setCurrentTime: s.setCurrentTime, canvasScale: s.canvasScale, setCanvasScale: s.setCanvasScale, isFullscreen: s.isFullscreen, headerShowLang: s.headerShowLang, headerShowRes: s.headerShowRes, headerShowShortcuts: s.headerShowShortcuts, headerShowTheme: s.headerShowTheme, headerShowTutorial: s.headerShowTutorial })));
+  const { appMode, loadVideoByPath, resolution, setResolution, duration, setPlaying, setCurrentTime, canvasScale, setCanvasScale, isFullscreen, headerShowLang, headerShowRes, headerShowShortcuts, headerShowTheme, headerShowTutorial } = useTimeline(useShallow((s) => ({ appMode: s.appMode, loadVideoByPath: s.loadVideoByPath, resolution: s.resolution, setResolution: s.setResolution, duration: s.duration, setPlaying: s.setPlaying, setCurrentTime: s.setCurrentTime, canvasScale: s.canvasScale, setCanvasScale: s.setCanvasScale, isFullscreen: s.isFullscreen, headerShowLang: s.headerShowLang, headerShowRes: s.headerShowRes, headerShowShortcuts: s.headerShowShortcuts, headerShowTheme: s.headerShowTheme, headerShowTutorial: s.headerShowTutorial })));
   
   // --- Tauri File Open Handler ---
   useEffect(() => {
@@ -67,15 +68,12 @@ export default function Home() {
       try {
         const { listen } = await import("@tauri-apps/api/event");
         const { invoke } = await import("@tauri-apps/api/tauri");
-        const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v', '.flv', '.wmv', '.mpg', '.mpeg', '.3gp', '.ogv', '.ts', '.mts', '.m2ts', '.vob', '.divx', '.f4v', '.asf', '.rm', '.rmvb', '.3g2', '.mxf', '.dv'];
 
         // 1. Listen for future path selections (single instance)
         unlisten = await listen("path-selected", async (event: any) => {
           const paths = event.payload as string[];
           if (paths && paths.length > 0) {
-            const videoPath = paths.find(p => 
-              VIDEO_EXTS.some(ext => p.toLowerCase().replace(/["']/g, '').endsWith(ext))
-            );
+            const videoPath = paths.find(p => isVideoPath(p));
             if (videoPath) {
               const cleanPath = videoPath.replace(/^["']|["']$/g, '');
               // Ensure Tauri allows access to this file
@@ -89,7 +87,7 @@ export default function Home() {
         const initialPath = await invoke<string | null>("get_initial_path");
         if (initialPath) {
           const cleanPath = initialPath.replace(/^["']|["']$/g, '');
-          const isVideo = VIDEO_EXTS.some(ext => cleanPath.toLowerCase().endsWith(ext));
+          const isVideo = isVideoPath(cleanPath);
           if (isVideo) {
             // Ensure Tauri allows access to this file
             try { await invoke('allow_file_access', { path: cleanPath }); } catch(_) {}
@@ -107,11 +105,13 @@ export default function Home() {
     };
   }, [loadVideoByPath]);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setVideoFile(file, url);
+  // mpv necesita la ruta del archivo: se abre con el selector de Windows.
+  const handleOpenVideo = async () => {
+    try {
+      const path = await pickVideoPath();
+      if (path) loadVideoByPath(path, false);
+    } catch (err) {
+      console.error("No se pudo abrir el selector de videos:", err);
     }
   };
 
@@ -160,12 +160,12 @@ export default function Home() {
 
   return (
     <div 
-      className={`h-screen flex flex-col bg-background text-foreground overflow-hidden selection:bg-indigo-500/30 ${isFullscreen || appMode === "player" ? 'fullscreen-active' : ''}`}
+      className={`mpv-clear h-screen flex flex-col bg-background text-foreground overflow-hidden selection:bg-indigo-500/30 ${isFullscreen || appMode === "player" ? 'fullscreen-active' : ''}`}
     >
       {/* Header */}
       {/* Header - hide in fullscreen to maximize space, or only show if NOT in fullscreen */}
       {!isFullscreen && appMode === "editor" && (
-      <header className="h-14 border-b border-border px-6 flex items-center justify-between bg-background/95 backdrop-blur-md z-10 shrink-0">
+      <header className="mpv-solid h-14 border-b border-border px-6 flex items-center justify-between bg-background/95 backdrop-blur-md z-10 shrink-0">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-indigo-400 to-emerald-400 drop-shadow-sm">
             {t('app_name')}
@@ -175,18 +175,11 @@ export default function Home() {
         <div className="flex items-center gap-4">
           <TooltipProvider>
             <Tooltip>
-              <TooltipTrigger delay={500} render={<div className="relative overflow-hidden group" />}>
-                <input
-                  type="file"
-                  accept="video/*"
-                  title=""
-                  aria-label={t('change_video')}
-                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
-                  onChange={handleFileUpload}
-                />
-                <Button variant="outline" size="icon" tabIndex={-1} className="bg-muted/50 transition-colors group-hover:bg-muted group-hover:text-foreground">
-                  <Upload className="w-4 h-4" />
-                </Button>
+              <TooltipTrigger
+                delay={500}
+                render={<Button variant="outline" size="icon" aria-label={t('change_video')} onClick={handleOpenVideo} className="bg-muted/50 transition-colors hover:bg-muted hover:text-foreground" />}
+              >
+                <Upload className="w-4 h-4" />
               </TooltipTrigger>
               <TooltipContent side="bottom">{t('change_video')}</TooltipContent>
             </Tooltip>
@@ -338,23 +331,59 @@ export default function Home() {
 
       {/* Main Editing Area */}
       <main ref={mainRef} className="flex-1 flex flex-col overflow-hidden">
-        {/* Top: Video Preview Workspace */}
-        <div className={`flex-1 bg-[#121212] flex flex-col relative w-full shadow-inner ${isFullscreen ? '' : 'border-b border-border'}`}>
-          <Suspense fallback={<div className="flex-1 flex items-center justify-center text-muted-foreground animate-pulse">Cargando editor…</div>}>
-            <Canvas />
-          </Suspense>
+        {/* Arriba: el video a la izquierda y el inspector a la derecha (se oculta con la flechita) */}
+        <div className={`flex-1 min-h-0 flex relative w-full ${isFullscreen ? '' : 'border-b border-border'}`}>
+          <div className="mpv-clear flex-1 min-w-0 bg-[var(--stage)] flex flex-col relative shadow-inner">
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center text-muted-foreground animate-pulse">Cargando editor…</div>}>
+              <Canvas />
+            </Suspense>
 
-          {/* Canvas Zoom Indicator */}
-          {duration > 0 && !isFullscreen && appMode === "editor" && (
-            <div className="absolute top-3 left-3 z-20 bg-black/60 backdrop-blur-sm text-white text-[11px] font-mono px-2.5 py-1 rounded-md border border-white/10 select-none tabular-nums">
-              {t('canvas_zoom')}: {(canvasScale * 100).toFixed(0)}%
-            </div>
+            {/* Canvas Zoom Indicator */}
+            {duration > 0 && !isFullscreen && appMode === "editor" && (
+              <div className="absolute top-3 left-3 z-20 bg-black/60 backdrop-blur-sm text-white text-[11px] font-mono px-2.5 py-1 rounded-md border border-white/10 select-none tabular-nums">
+                {t('canvas_zoom')}: {(canvasScale * 100).toFixed(0)}%
+              </div>
+            )}
+
+            {/* Flechita para volver a mostrar el inspector */}
+            <AnimatePresence>
+              {!showInspector && !isFullscreen && appMode === "editor" && (
+                <motion.div
+                  initial={{ opacity: 0, x: 8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 8 }}
+                  className="absolute top-3 right-3 z-50"
+                >
+                   <Button
+                      variant="secondary"
+                      size="icon"
+                      onClick={() => setShowInspector(true)}
+                      className="w-9 h-9 rounded-full shadow-lg border border-border"
+                      title={t('inspector')}
+                   >
+                      <ChevronLeft className="w-5 h-5" />
+                   </Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {!isFullscreen && appMode === "editor" && (
+            <motion.div
+               initial={false}
+               animate={{ width: showInspector ? 400 : 0 }}
+               className="mpv-solid shrink-0 h-full overflow-hidden bg-background border-l border-border relative flex z-10"
+            >
+               <div className="w-[400px] h-full overflow-y-auto overscroll-contain shrink-0 bg-muted/10">
+                 <Inspector onClose={() => setShowInspector(false)} />
+               </div>
+            </motion.div>
           )}
         </div>
-        
-        {/* Bottom Panel: Editing Tools */}
+
+        {/* Abajo: la línea de tiempo con todo el ancho */}
         {!isFullscreen && appMode === "editor" && (
-        <div ref={bottomPanelRef} style={{ height: bottomHeight, maxHeight: "calc(100% - 150px)" }} className="bg-background flex shrink-0 w-full z-10 relative">
+        <div ref={bottomPanelRef} style={{ height: bottomHeight, maxHeight: "calc(100% - 150px)" }} className="mpv-solid bg-background flex shrink-0 w-full z-10 relative">
           {/* Draggable divider between the video and the editor */}
           <div
             onPointerDown={startPanelResize}
@@ -367,40 +396,9 @@ export default function Home() {
             <div className="w-full h-px transition-colors bg-transparent group-hover:bg-indigo-500/70 group-data-[dragging=true]:bg-indigo-500" />
             <div className="absolute w-12 h-1 rounded-full transition-colors bg-white/20 group-hover:bg-indigo-500/80 group-data-[dragging=true]:bg-indigo-500" />
           </div>
-          <div className="group/panel flex-1 flex flex-col h-full border-r border-border overflow-hidden" data-inspector-hidden={!showInspector}>
+          <div className="group/panel flex-1 flex flex-col h-full overflow-hidden">
              <Timeline />
           </div>
-
-          <motion.div
-             initial={false}
-             animate={{ width: showInspector ? 400 : 0 }}
-             className="shrink-0 h-full overflow-hidden bg-muted/10 border-l border-border relative flex"
-          >
-             <div className="w-[400px] h-full overflow-y-auto shrink-0">
-               <Inspector onClose={() => setShowInspector(false)} />
-             </div>
-          </motion.div>
-
-          <AnimatePresence>
-            {!showInspector && !isFullscreen && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                className="absolute top-4 right-4 z-50"
-              >
-                 <Button
-                    variant="secondary"
-                    size="icon"
-                    onClick={() => setShowInspector(true)}
-                    className="w-10 h-10 rounded-full shadow-lg border border-border"
-                    title={t('inspector')}
-                 >
-                    <LayoutPanelLeft className="w-5 h-5" />
-                 </Button>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
         )}
       </main>

@@ -1,47 +1,49 @@
 import { memo, useEffect, useRef, useState } from "react";
 import type { ColorCorrection } from "@/hooks/useTimeline";
-import { applyColorPreview } from "@/utils/colorPreview";
 
-/** Tone overlays for the image adjustments; their strength comes from the --cc-* CSS variables. */
-export function ColorOverlays({ show }: { show: boolean }) {
-  if (!show) return null;
-  const layer = (background: string, mixBlendMode: React.CSSProperties["mixBlendMode"], opacity: string) => (
-    <div className="absolute inset-0" style={{ background, mixBlendMode, opacity }} />
-  );
-  return (
-    <div className="absolute inset-0 pointer-events-none overflow-hidden">
-      {layer("rgba(255,255,255,1)", "screen", "var(--cc-shadow-lift, 0)")}
-      {layer("rgba(0,0,0,1)", "multiply", "var(--cc-shadow-crush, 0)")}
-      {layer("rgba(255,255,255,1)", "soft-light", "var(--cc-highlight-lift, 0)")}
-      {layer("rgba(0,0,0,1)", "soft-light", "var(--cc-highlight-recover, 0)")}
-      {layer("var(--cc-temperature-color, transparent)", "soft-light", "var(--cc-temperature-opacity, 0)")}
-    </div>
-  );
-}
+type SliderKey = "brightness" | "contrast" | "saturation" | "gamma" | "hue" | "temperature" | "shadows" | "highlights" | "sharpness";
+type SliderSpec = { key: SliderKey; label: string; min: number; max: number };
 
-const SLIDERS = [
-  ["Brillo", "brightness"],
-  ["Luces", "highlights"],
-  ["Sombras", "shadows"],
-  ["Contraste", "contrast"],
-  ["Saturacion", "saturation"],
-  ["Temperatura", "temperature"],
-] as const;
+/* Los mismos grupos y nombres que el panel Imagen de CINE WANA. */
+const GROUPS: Array<{ title: string; sliders: SliderSpec[] }> = [
+  {
+    title: "Luz y color",
+    sliders: [
+      { key: "brightness", label: "Brillo", min: -50, max: 50 },
+      { key: "contrast", label: "Contraste", min: -50, max: 50 },
+      { key: "saturation", label: "Saturación", min: -50, max: 50 },
+      { key: "gamma", label: "Gamma", min: -50, max: 50 },
+      { key: "hue", label: "Tono del color", min: -50, max: 50 },
+      { key: "temperature", label: "Temperatura", min: -50, max: 50 },
+    ],
+  },
+  {
+    title: "Sombreado",
+    sliders: [
+      { key: "shadows", label: "Sombras", min: -50, max: 50 },
+      { key: "highlights", label: "Luces", min: -50, max: 50 },
+    ],
+  },
+  {
+    title: "Detalle",
+    sliders: [{ key: "sharpness", label: "Nitidez", min: 0, max: 100 }],
+  },
+];
 
-type SliderKey = (typeof SLIDERS)[number][1];
+const ALL_KEYS = GROUPS.flatMap((group) => group.sliders.map((slider) => slider.key));
 
 interface ColorSlidersProps {
   value: ColorCorrection;
-  getPreviewTarget: () => HTMLElement | null;
+  /** Se llama en cada movimiento: el reproductor mpv muestra el cambio al instante. */
+  onPreview: (next: ColorCorrection) => void;
   onCommit: (updates: Partial<ColorCorrection>) => void;
 }
 
 /**
- * Image sliders that stay smooth while dragging: the preview is written straight to the video's
- * CSS variables and only this small component re-renders. The app state (and with it the whole
- * player) is updated once, when the slider is released.
+ * Controles de imagen que no traban la reproducción: mientras se arrastra solo se re-dibuja este
+ * componente y se le avisa a mpv; el estado de la app se actualiza una vez, al soltar.
  */
-export const ColorSliders = memo(function ColorSliders({ value, getPreviewTarget, onCommit }: ColorSlidersProps) {
+export const ColorSliders = memo(function ColorSliders({ value, onPreview, onCommit }: ColorSlidersProps) {
   const [draft, setDraft] = useState(value);
   const draftRef = useRef(value);
   const dirtyRef = useRef(false);
@@ -49,7 +51,7 @@ export const ColorSliders = memo(function ColorSliders({ value, getPreviewTarget
   const onCommitRef = useRef(onCommit);
   onCommitRef.current = onCommit;
 
-  // Outside a drag the sliders always follow the app (presets, reset, undo…).
+  // Fuera de un arrastre los controles siguen siempre a la app (ajustes rápidos, reset…).
   useEffect(() => {
     if (draggingRef.current) return;
     dirtyRef.current = false;
@@ -57,8 +59,7 @@ export const ColorSliders = memo(function ColorSliders({ value, getPreviewTarget
     setDraft(value);
   }, [value]);
 
-  // The pointer is often released outside the slider; without this the drag would never end
-  // and the sliders would stop following the app.
+  // El mouse muchas veces se suelta fuera del control; sin esto el arrastre no terminaría nunca.
   useEffect(() => {
     const stop = () => {
       if (!draggingRef.current) return;
@@ -77,17 +78,12 @@ export const ColorSliders = memo(function ColorSliders({ value, getPreviewTarget
     if (!dirtyRef.current) return;
     dirtyRef.current = false;
     const d = draftRef.current;
-    onCommitRef.current({
-      brightness: d.brightness,
-      highlights: d.highlights,
-      shadows: d.shadows,
-      contrast: d.contrast,
-      saturation: d.saturation,
-      temperature: d.temperature,
-    });
+    const updates: Partial<ColorCorrection> = {};
+    for (const key of ALL_KEYS) updates[key] = d[key];
+    onCommitRef.current(updates);
   };
 
-  // Closing the panel in the middle of a drag must not lose the change.
+  // Cerrar el panel en medio de un arrastre no tiene que perder el cambio.
   useEffect(() => () => commit(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const update = (key: SliderKey, amount: number) => {
@@ -95,30 +91,37 @@ export const ColorSliders = memo(function ColorSliders({ value, getPreviewTarget
     draftRef.current = next;
     dirtyRef.current = true;
     setDraft(next);
-    applyColorPreview(getPreviewTarget(), next, true);
+    onPreview(next);
   };
 
   return (
     <>
-      {SLIDERS.map(([label, key]) => (
-        <label key={key} className="block mb-3">
-          <div className="flex items-center justify-between text-xs mb-1.5">
-            <span className="text-white/75">{label}</span>
-            <span className="font-mono text-white/50">{draft[key].toFixed(0)}</span>
-          </div>
-          <input
-            type="range"
-            min={-50}
-            max={50}
-            step={1}
-            value={draft[key]}
-            onChange={(e) => update(key, Number(e.target.value))}
-            onPointerDown={() => { draggingRef.current = true; }}
-            onKeyUp={commit}
-            onBlur={commit}
-            className="w-full accent-blue-500"
-          />
-        </label>
+      {GROUPS.map((group) => (
+        <div key={group.title} className="mb-1">
+          <div className="mb-2 mt-1 text-[10px] font-semibold uppercase tracking-wider text-white/40">{group.title}</div>
+          {group.sliders.map(({ key, label, min, max }) => (
+            <label key={key} className="block mb-3">
+              <div className="flex items-center justify-between text-xs mb-1.5">
+                <span className="text-white/75">{label}</span>
+                <span className="font-mono text-white/50">{(draft[key] ?? 0).toFixed(0)}</span>
+              </div>
+              <input
+                type="range"
+                min={min}
+                max={max}
+                step={1}
+                value={draft[key] ?? 0}
+                onChange={(e) => update(key, Number(e.target.value))}
+                onPointerDown={() => { draggingRef.current = true; }}
+                onDoubleClick={() => { update(key, 0); commit(); }}
+                onKeyUp={commit}
+                onBlur={commit}
+                title="Doble clic para volver a 0"
+                className="w-full accent-blue-500"
+              />
+            </label>
+          ))}
+        </div>
       ))}
     </>
   );

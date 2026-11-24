@@ -31,6 +31,9 @@ export interface ColorCorrection {
   saturation: number;
   shadows: number;
   temperature: number;
+  gamma: number;
+  hue: number;
+  sharpness: number; // 0 a 100
 }
 
 export const DEFAULT_COLOR_CORRECTION: ColorCorrection = {
@@ -41,6 +44,9 @@ export const DEFAULT_COLOR_CORRECTION: ColorCorrection = {
   saturation: 0,
   shadows: 0,
   temperature: 0,
+  gamma: 0,
+  hue: 0,
+  sharpness: 0,
 };
 
 interface TimelineState {

@@ -1,4 +1,5 @@
 import { useTimeline } from "@/hooks/useTimeline";
+import { useMpv } from "@/player/mpv";
 import { useShallow } from "zustand/react/shallow";
 import { buildRenderJob, cancelRender, copyFileToTemp, deleteTempCopy, probeHasAudio, revealInFolder, runRender } from "@/hooks/useFFmpeg";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -64,7 +65,14 @@ export default function ExportModal() {
       if (videoPath) {
         const { convertFileSrc } = await import("@tauri-apps/api/tauri");
         inputPath = videoPath;
-        size = await readVideoSize(convertFileSrc(videoPath));
+        try {
+          size = await readVideoSize(convertFileSrc(videoPath));
+        } catch (error) {
+          // Formatos que la parte web no abre (MKV, HEVC…): las medidas las da mpv.
+          const engine = useMpv.getState().state;
+          if (!engine?.videoWidth || !engine?.videoHeight) throw error;
+          size = { width: engine.videoWidth, height: engine.videoHeight };
+        }
       } else {
         // Opened from the file picker: no disk path, so ffmpeg gets a temporary copy
         // that is deleted in `finally` (and swept on the next start if the app dies)
